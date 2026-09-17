@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo } = React;
 
-const APP_VERSION = "1.90";
+const APP_VERSION = "1.91";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -4216,6 +4216,7 @@ function App() {
             </div>
 
             {!modalitaDirettore && (
+            <>
             <div className="settings-section">
               <div className="settings-title">
                 <Icon name="FileUp" size={16} /> Importa giocatori da Excel
@@ -4313,6 +4314,7 @@ function App() {
                 <Icon name="Trash2" size={15} /> Azzera risultati
               </button>
             </div>
+            </>
             )}
 
             {importMsg && <div className="settings-msg">{importMsg}</div>}
