@@ -1,6 +1,6 @@
-const { useState, useEffect, useMemo } = React;
+const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.91";
+const APP_VERSION = "1.92";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3058,6 +3058,29 @@ function App() {
   const [editingConvocazione, setEditingConvocazione] = useState(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("anagrafica");
+  const touchRef = useRef({ x: 0, y: 0 });
+
+  const cambiaTabSwipe = (direzione) => {
+    const ids = ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
+    const i = ids.indexOf(tab);
+    if (i === -1) return;
+    const next = direzione === "left" ? i + 1 : i - 1;
+    if (next >= 0 && next < ids.length) setTab(ids[next]);
+  };
+
+  const onContentTouchStart = (e) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY };
+  };
+
+  const onContentTouchEnd = (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      cambiaTabSwipe(dx < 0 ? "left" : "right");
+    }
+  };
   const [showSettings, setShowSettings] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const [nomeSquadra, setNomeSquadra] = useState(() => {
@@ -3686,7 +3709,7 @@ function App() {
         ))}
       </nav>
 
-      <main className="content">
+      <main className="content" onTouchStart={onContentTouchStart} onTouchEnd={onContentTouchEnd}>
         {tab === "anagrafica" && (
           <>
             <div className="toolbar">
