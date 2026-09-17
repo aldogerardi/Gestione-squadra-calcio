@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo } = React;
 
-const APP_VERSION = "1.89";
+const APP_VERSION = "1.90";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -641,7 +641,7 @@ function TrainingForm({ initial, players, onSave, onCancel }) {
   );
 }
 
-function TrainingCard({ t, players, nomeSquadra, onEdit, onDelete, onReport }) {
+function TrainingCard({ t, players, nomeSquadra, onEdit, onDelete, onReport, readOnly }) {
   const presenti = Object.values(t.entries).filter((e) => e.stato === "presente");
   const infortunati = Object.values(t.entries).filter((e) => e.stato === "presente" && e.infortunato);
   const assentiCount = Math.max(0, players.length - presenti.length);
@@ -674,9 +674,15 @@ function TrainingCard({ t, players, nomeSquadra, onEdit, onDelete, onReport }) {
       <div className="card-body">
         <div className="card-top">
           <div className="card-name-row">
-            <button className="icon-btn edit-inline" onClick={() => onEdit(t)} aria-label="Apri">
-              <Icon name={t.chiuso ? "Lock" : "Pencil"} size={14} />
-            </button>
+            {readOnly ? (
+              <span className="icon-btn" style={{ cursor: "default" }}>
+                <Icon name={t.chiuso ? "Lock" : "Dumbbell"} size={14} />
+              </span>
+            ) : (
+              <button className="icon-btn edit-inline" onClick={() => onEdit(t)} aria-label="Apri">
+                <Icon name={t.chiuso ? "Lock" : "Pencil"} size={14} />
+              </button>
+            )}
             <div>
               <div className="card-name">
                 {presenti.length} presenti {t.chiuso && <span className="chiuso-badge">Chiuso</span>}
@@ -685,9 +691,11 @@ function TrainingCard({ t, players, nomeSquadra, onEdit, onDelete, onReport }) {
             </div>
           </div>
           <div className="card-actions">
-            <button className="icon-btn danger" onClick={() => onDelete(t.id)} aria-label="Elimina">
-              <Icon name="Trash2" size={15} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(t.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
           </div>
         </div>
         <div className="training-summary">
@@ -1865,7 +1873,7 @@ function MatchForm({ initial, players, durataPartita, onSave, onCancel }) {
   );
 }
 
-function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuickReport, onLive }) {
+function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuickReport, onLive, readOnly }) {
   const titolariCount = Object.values(m.entries).filter((e) => e.stato === "titolare").length;
   const nomeById = Object.fromEntries(players.map((p) => [p.id, `${p.cognome} ${p.nome}`]));
   const used = Object.entries(m.entries).filter(([, e]) => e.stato === "titolare" || e.stato === "subentrato");
@@ -1922,9 +1930,15 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
       <div className="card-body">
         <div className="card-top">
           <div className="card-name-row">
-            <button className="icon-btn edit-inline" onClick={() => onEdit(m)} aria-label="Apri">
-              <Icon name={m.chiuso ? "Lock" : "Pencil"} size={14} />
-            </button>
+            {readOnly ? (
+              <span className="icon-btn" style={{ cursor: "default" }}>
+                <Icon name={m.chiuso ? "Lock" : "Trophy"} size={14} />
+              </span>
+            ) : (
+              <button className="icon-btn edit-inline" onClick={() => onEdit(m)} aria-label="Apri">
+                <Icon name={m.chiuso ? "Lock" : "Pencil"} size={14} />
+              </button>
+            )}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className="match-teams">
                 <div className="match-team-row">
@@ -1950,9 +1964,11 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
             <button className="icon-btn" onClick={() => onReport(m)} aria-label="Distinta">
               <Icon name="ClipboardList" size={15} />
             </button>
-            <button className="icon-btn danger" onClick={() => onDelete(m.id)} aria-label="Elimina">
-              <Icon name="Trash2" size={15} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(m.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
           </div>
         </div>
         {m.chiuso && (
@@ -1965,7 +1981,7 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
             </button>
           </div>
         )}
-        {!m.chiuso && titolariCount > 0 && (
+        {!readOnly && !m.chiuso && titolariCount > 0 && (
           <div className="training-actions">
             <button type="button" className="btn-mini live" onClick={() => onLive(m)}>
               <Icon name="Play" size={14} /> {m.live && m.live.fase && m.live.fase !== "idle" ? "Riprendi live" : "Avvia live"}
@@ -2651,7 +2667,7 @@ function ConvocazioneForm({ initial, players, matches, onSave, onCancel }) {
   );
 }
 
-function ConvocazioneCard({ c, players, matches, nomeSquadra, onEdit, onDelete }) {
+function ConvocazioneCard({ c, players, matches, nomeSquadra, onEdit, onDelete, readOnly }) {
   const match = matches.find((m) => m.id === c.matchId) || null;
   const convocati = players.filter((p) => c.convocatiIds.includes(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
   const nonConvocati = players.filter((p) => !c.convocatiIds.includes(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
@@ -2687,9 +2703,15 @@ function ConvocazioneCard({ c, players, matches, nomeSquadra, onEdit, onDelete }
       <div className="card-body">
         <div className="card-top">
           <div className="card-name-row">
-            <button className="icon-btn edit-inline" onClick={() => onEdit(c)} aria-label="Modifica">
-              <Icon name="Pencil" size={14} />
-            </button>
+            {readOnly ? (
+              <span className="icon-btn" style={{ cursor: "default" }}>
+                <Icon name="ClipboardList" size={14} />
+              </span>
+            ) : (
+              <button className="icon-btn edit-inline" onClick={() => onEdit(c)} aria-label="Modifica">
+                <Icon name="Pencil" size={14} />
+              </button>
+            )}
             <div>
               <div className="card-name">{match ? `vs ${match.avversario || "Avversario"}` : "Partita eliminata"}</div>
               {(c.dataRitrovo || c.oraRitrovo) && (
@@ -2707,9 +2729,11 @@ function ConvocazioneCard({ c, players, matches, nomeSquadra, onEdit, onDelete }
             <button className="icon-btn" onClick={condividiWhatsapp} aria-label="Condividi su WhatsApp">
               <WhatsAppIcon size={19} />
             </button>
-            <button className="icon-btn danger" onClick={() => onDelete(c.id)} aria-label="Elimina">
-              <Icon name="Trash2" size={15} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(c.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2885,7 +2909,7 @@ function FriendlyForm({ initial, players, trainings, onSave, onCancel }) {
   );
 }
 
-function FriendlyCard({ f, players, onEdit, onDelete }) {
+function FriendlyCard({ f, players, onEdit, onDelete, readOnly }) {
   const teamA = Object.entries(f.assegnazioni || {}).filter(([, t]) => t === "A").map(([id]) => id);
   const teamB = Object.entries(f.assegnazioni || {}).filter(([, t]) => t === "B").map(([id]) => id);
 
@@ -2907,18 +2931,26 @@ function FriendlyCard({ f, players, onEdit, onDelete }) {
       <div className="card-body">
         <div className="card-top">
           <div className="card-name-row">
-            <button className="icon-btn edit-inline" onClick={() => onEdit(f)} aria-label="Modifica">
-              <Icon name="Pencil" size={14} />
-            </button>
+            {readOnly ? (
+              <span className="icon-btn" style={{ cursor: "default" }}>
+                <Icon name="Shuffle" size={14} />
+              </span>
+            ) : (
+              <button className="icon-btn edit-inline" onClick={() => onEdit(f)} aria-label="Modifica">
+                <Icon name="Pencil" size={14} />
+              </button>
+            )}
             <div>
               <div className="card-name">{titolo}</div>
               <div className="card-meta">{esito}</div>
             </div>
           </div>
           <div className="card-actions">
-            <button className="icon-btn danger" onClick={() => onDelete(f.id)} aria-label="Elimina">
-              <Icon name="Trash2" size={15} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(f.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2926,7 +2958,7 @@ function FriendlyCard({ f, players, onEdit, onDelete }) {
   );
 }
 
-function PlayerCard({ p, onEdit, onDelete }) {
+function PlayerCard({ p, onEdit, onDelete, readOnly }) {
   const cert = certStatus(p.scadenzaCertificato);
   const a = age(p.dataNascita);
   return (
@@ -2937,9 +2969,15 @@ function PlayerCard({ p, onEdit, onDelete }) {
       <div className="card-body">
         <div className="card-top">
           <div className="card-name-row">
-            <button className="icon-btn edit-inline" onClick={() => onEdit(p)} aria-label="Modifica">
-              <Icon name="Pencil" size={14} />
-            </button>
+            {readOnly ? (
+              <span className="icon-btn" style={{ cursor: "default" }}>
+                <Icon name="User" size={14} />
+              </span>
+            ) : (
+              <button className="icon-btn edit-inline" onClick={() => onEdit(p)} aria-label="Modifica">
+                <Icon name="Pencil" size={14} />
+              </button>
+            )}
             <div>
               <div className="card-name">
                 {p.cognome} {p.nome}
@@ -2951,9 +2989,11 @@ function PlayerCard({ p, onEdit, onDelete }) {
             </div>
           </div>
           <div className="card-actions">
-            <button className="icon-btn danger" onClick={() => onDelete(p.id)} aria-label="Elimina">
-              <Icon name="Trash2" size={15} />
-            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(p.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -3037,7 +3077,7 @@ function App() {
   const [categoriaAttiva, setCategoriaAttiva] = useState(() => {
     try {
       const v = localStorage.getItem("gs_categoria_attiva");
-      return CATEGORIE.some((c) => c.id === v) ? v : "giovanissimi15";
+      return CATEGORIE.some((c) => c.id === v) || v === "tutte" ? v : "giovanissimi15";
     } catch (e) {
       return "giovanissimi15";
     }
@@ -3047,7 +3087,8 @@ function App() {
       localStorage.setItem("gs_categoria_attiva", categoriaAttiva);
     } catch (e) {}
   }, [categoriaAttiva]);
-  const categoriaObj = getCategoria(categoriaAttiva);
+  const modalitaDirettore = categoriaAttiva === "tutte";
+  const categoriaObj = modalitaDirettore ? { nome: "Tutte le categorie", durata: 70, numPeriodi: 2, periodoMinuti: 35 } : getCategoria(categoriaAttiva);
   const durataPartita = categoriaObj.durata;
 
   const [deviceCode] = useState(() => {
@@ -3161,8 +3202,8 @@ function App() {
   const [ordinamento, setOrdinamento] = useState("alfabetico");
 
   const giocatoriCategoria = useMemo(
-    () => players.filter((p) => (p.categoria || "giovanissimi15") === categoriaAttiva),
-    [players, categoriaAttiva]
+    () => (modalitaDirettore ? players : players.filter((p) => (p.categoria || "giovanissimi15") === categoriaAttiva)),
+    [players, categoriaAttiva, modalitaDirettore]
   );
 
   const filtered = useMemo(() => {
@@ -3199,9 +3240,9 @@ function App() {
   const sortedTrainings = useMemo(
     () =>
       trainings
-        .filter((t) => (t.categoria || "giovanissimi15") === categoriaAttiva)
+        .filter((t) => modalitaDirettore || (t.categoria || "giovanissimi15") === categoriaAttiva)
         .sort((a, b) => b.data.localeCompare(a.data)),
-    [trainings, categoriaAttiva]
+    [trainings, categoriaAttiva, modalitaDirettore]
   );
 
   const saveTraining = (t) => {
@@ -3219,9 +3260,9 @@ function App() {
   const sortedMatches = useMemo(
     () =>
       matches
-        .filter((m) => (m.categoria || "giovanissimi15") === categoriaAttiva)
+        .filter((m) => modalitaDirettore || (m.categoria || "giovanissimi15") === categoriaAttiva)
         .sort((a, b) => b.data.localeCompare(a.data)),
-    [matches, categoriaAttiva]
+    [matches, categoriaAttiva, modalitaDirettore]
   );
 
   const saveMatch = (m) => {
@@ -3252,9 +3293,9 @@ function App() {
   const sortedFriendlies = useMemo(() => {
     const trainingCatById = Object.fromEntries(trainings.map((t) => [t.id, t.categoria || "giovanissimi15"]));
     return friendlies
-      .filter((f) => (trainingCatById[f.trainingId] || "giovanissimi15") === categoriaAttiva)
+      .filter((f) => modalitaDirettore || (trainingCatById[f.trainingId] || "giovanissimi15") === categoriaAttiva)
       .sort((a, b) => b.data.localeCompare(a.data));
-  }, [friendlies, trainings, categoriaAttiva]);
+  }, [friendlies, trainings, categoriaAttiva, modalitaDirettore]);
 
   const saveFriendly = (f) => {
     setFriendlies((prev) => {
@@ -3657,9 +3698,11 @@ function App() {
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
+              {!modalitaDirettore && (
               <button className="btn primary" onClick={() => setEditing({ ...emptyPlayer })}>
                 <Icon name="Plus" size={16} /> Aggiungi
               </button>
+              )}
             </div>
 
             <div className="ordinamento-toggle">
@@ -3692,7 +3735,7 @@ function App() {
                   return (
                     <React.Fragment key={p.id}>
                       {mostraIntestazione && <div className="ruolo-heading">{p.ruolo}</div>}
-                      <PlayerCard p={p} onEdit={setEditing} onDelete={deletePlayer} />
+                      <PlayerCard p={p} onEdit={setEditing} onDelete={deletePlayer} readOnly={modalitaDirettore} />
                     </React.Fragment>
                   );
                 })}
@@ -3707,6 +3750,7 @@ function App() {
               <div className="toolbar-title">
                 <Icon name="Dumbbell" size={16} /> Sedute di allenamento
               </div>
+              {!modalitaDirettore && (
               <button
                 className="btn primary"
                 onClick={() => setEditingTraining({ ...emptyTraining, data: new Date().toISOString().slice(0, 10), categoria: categoriaAttiva })}
@@ -3714,6 +3758,7 @@ function App() {
               >
                 <Icon name="Plus" size={16} /> Nuovo
               </button>
+              )}
             </div>
 
             {players.length === 0 ? (
@@ -3737,6 +3782,7 @@ function App() {
                     onEdit={setEditingTraining}
                     onDelete={deleteTraining}
                     onReport={setReportTraining}
+                    readOnly={modalitaDirettore}
                   />
                 ))}
               </div>
@@ -3750,6 +3796,7 @@ function App() {
               <div className="toolbar-title">
                 <Icon name="Trophy" size={16} /> Partite
               </div>
+              {!modalitaDirettore && (
               <button
                 className="btn primary"
                 onClick={() => setEditingMatch({ ...emptyMatch, data: new Date().toISOString().slice(0, 10), categoria: categoriaAttiva })}
@@ -3757,6 +3804,7 @@ function App() {
               >
                 <Icon name="Plus" size={16} /> Nuova
               </button>
+              )}
             </div>
 
             {players.length === 0 ? (
@@ -3782,6 +3830,7 @@ function App() {
                     onReport={setReportMatch}
                     onQuickReport={setReportMatchQuick}
                     onLive={(match) => setLiveMatchId(match.id)}
+                    readOnly={modalitaDirettore}
                   />
                 ))}
               </div>
@@ -3795,6 +3844,7 @@ function App() {
               <div className="toolbar-title">
                 <Icon name="Shuffle" size={16} /> Partitelle
               </div>
+              {!modalitaDirettore && (
               <button
                 className="btn primary"
                 onClick={() => setEditingFriendly({ ...emptyFriendly })}
@@ -3802,6 +3852,7 @@ function App() {
               >
                 <Icon name="Plus" size={16} /> Nuova
               </button>
+              )}
             </div>
 
             {trainings.length === 0 ? (
@@ -3843,6 +3894,7 @@ function App() {
                         players={giocatoriCategoria}
                         onEdit={setEditingFriendly}
                         onDelete={deleteFriendly}
+                        readOnly={modalitaDirettore}
                       />
                     ))}
                   </div>
@@ -3858,7 +3910,7 @@ function App() {
               <div className="toolbar-title">
                 <Icon name="ClipboardList" size={16} /> Convocazioni
               </div>
-              {unlocked && (
+              {unlocked && !modalitaDirettore && (
                 <button
                   className="btn primary"
                   onClick={() => setEditingConvocazione({ ...emptyConvocazione })}
@@ -3899,6 +3951,7 @@ function App() {
                       nomeSquadra={nomeSquadra}
                       onEdit={setEditingConvocazione}
                       onDelete={deleteConvocazione}
+                      readOnly={modalitaDirettore}
                     />
                   ))}
               </div>
@@ -4144,14 +4197,25 @@ function App() {
                       {c.nome} — {c.durata}' ({c.numPeriodi}x{c.periodoMinuti}')
                     </option>
                   ))}
+                  <option value="tutte">🎯 Tutte le categorie (Direttore Sportivo)</option>
                 </select>
               </label>
-              <p className="muted">
-                Determina durata partita e numero di tempi (usata per Partita Live e calcolo minuti giocati), e filtra
-                anagrafica/allenamenti/partite mostrando solo quelli di questa categoria.
-              </p>
+              {modalitaDirettore ? (
+                <p className="muted">
+                  <strong>Modalità Direttore Sportivo attiva</strong>: vedi anagrafica, allenamenti, partite e report di{" "}
+                  <strong>tutte</strong> le categorie insieme, in sola lettura — non puoi creare, modificare o
+                  eliminare nulla. Soluzione provvisoria in attesa del database condiviso: funziona solo con i dati già
+                  presenti su questo dispositivo (usa "Importa da un altro allenatore" per portarli qui).
+                </p>
+              ) : (
+                <p className="muted">
+                  Determina durata partita e numero di tempi (usata per Partita Live e calcolo minuti giocati), e filtra
+                  anagrafica/allenamenti/partite mostrando solo quelli di questa categoria.
+                </p>
+              )}
             </div>
 
+            {!modalitaDirettore && (
             <div className="settings-section">
               <div className="settings-title">
                 <Icon name="FileUp" size={16} /> Importa giocatori da Excel
@@ -4249,6 +4313,7 @@ function App() {
                 <Icon name="Trash2" size={15} /> Azzera risultati
               </button>
             </div>
+            )}
 
             {importMsg && <div className="settings-msg">{importMsg}</div>}
           </div>
