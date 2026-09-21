@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.95";
+const APP_VERSION = "1.96";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1034,7 +1034,7 @@ function MatchReport({ m, players, nomeSquadra, onClose }) {
   );
 }
 
-function LiveMatchModal({ m, players, nomeSquadra, categoria, setMatches, onClose }) {
+function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onClose }) {
   const [, forceTick] = useState(0);
   const numPeriodi = categoria.numPeriodi;
   const live = normalizzaLive(m.live, numPeriodi);
@@ -1048,25 +1048,18 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, setMatches, onClos
   }, [live.fase, live.runningSince, live.periodo]);
 
   const updateLive = (updater) => {
-    setMatches((prev) =>
-      prev.map((x) => (x.id !== m.id ? x : { ...x, live: updater(normalizzaLive(x.live, numPeriodi)) }))
-    );
+    onUpdateMatch(m.id, (x) => ({ ...x, live: updater(normalizzaLive(x.live, numPeriodi)) }));
   };
 
   const updateEntry = (playerId, patch) => {
-    setMatches((prev) =>
-      prev.map((x) => {
-        if (x.id !== m.id) return x;
-        const prevEntry = x.entries[playerId] || emptyMatchEntry();
-        return { ...x, entries: { ...x.entries, [playerId]: { ...prevEntry, ...(typeof patch === "function" ? patch(prevEntry) : patch) } } };
-      })
-    );
+    onUpdateMatch(m.id, (x) => {
+      const prevEntry = x.entries[playerId] || emptyMatchEntry();
+      return { ...x, entries: { ...x.entries, [playerId]: { ...prevEntry, ...(typeof patch === "function" ? patch(prevEntry) : patch) } } };
+    });
   };
 
   const setScore = (campo, delta) => {
-    setMatches((prev) =>
-      prev.map((x) => (x.id !== m.id ? x : { ...x, [campo]: String(Math.max(0, (Number(x[campo]) || 0) + delta)) }))
-    );
+    onUpdateMatch(m.id, (x) => ({ ...x, [campo]: String(Math.max(0, (Number(x[campo]) || 0) + delta)) }));
   };
 
   const avviaPeriodo = () =>
@@ -3266,11 +3259,60 @@ function App() {
     };
   }, []);
 
+  const [fbMatchesSync, setFbMatchesSync] = useState("connessione");
+
   useEffect(() => {
-    try {
-      const m = localStorage.getItem("gs_matches");
-      if (m) setMatches(JSON.parse(m));
-    } catch (e) {}
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeCollection === "function") {
+        unsubscribe = window.fsSubscribeCollection(
+          "partite",
+          (arr) => {
+            setMatches(arr);
+            setFbMatchesSync("ok");
+            try {
+              localStorage.setItem("gs_matches", JSON.stringify(arr));
+            } catch (e) {}
+          },
+          () => setFbMatchesSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setFbMatchesSync("offline");
+        try {
+          const m = localStorage.getItem("gs_matches");
+          if (m) setMatches(JSON.parse(m));
+        } catch (e) {}
+      }
+    };
+    prova();
+
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const updateMatchRemote = (id, updater) => {
+    const current = matches.find((x) => x.id === id);
+    if (!current) return;
+    const updated = typeof updater === "function" ? updater(current) : { ...current, ...updater };
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("partite", id, updated).catch((err) => {
+        console.error("Errore salvataggio partita su Firestore:", err);
+      });
+    } else {
+      setMatches((prev) => prev.map((x) => (x.id === id ? updated : x)));
+    }
+  };
+
+  useEffect(() => {
     try {
       const f = localStorage.getItem("gs_friendlies");
       if (f) setFriendlies(JSON.parse(f));
@@ -3281,13 +3323,6 @@ function App() {
     } catch (e) {}
     setLoaded(true);
   }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      localStorage.setItem("gs_matches", JSON.stringify(matches));
-    } catch (e) {}
-  }, [matches, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -3397,15 +3432,28 @@ function App() {
   );
 
   const saveMatch = (m) => {
-    setMatches((prev) => {
-      const exists = prev.some((x) => x.id === m.id);
-      return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m];
-    });
     setEditingMatch(null);
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("partite", m.id, m).catch((err) => {
+        console.error("Errore salvataggio partita su Firestore:", err);
+        setImportMsg("Errore salvataggio: " + (err && err.message ? err.message : "riprova"));
+      });
+    } else {
+      setMatches((prev) => {
+        const exists = prev.some((x) => x.id === m.id);
+        return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m];
+      });
+    }
   };
 
   const deleteMatch = (id) => {
-    setMatches((prev) => prev.filter((m) => m.id !== id));
+    if (typeof window.fsDeleteDoc === "function") {
+      window.fsDeleteDoc("partite", id).catch((err) => {
+        console.error("Errore eliminazione partita su Firestore:", err);
+      });
+    } else {
+      setMatches((prev) => prev.filter((m) => m.id !== id));
+    }
   };
 
   const [riapriPartitaId, setRiapriPartitaId] = useState("");
@@ -3416,7 +3464,7 @@ function App() {
     const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" });
     const ok = window.confirm(`Riaprire la partita vs ${m.avversario || "Avversario"} del ${dataStr}? Potrai modificarla di nuovo.`);
     if (!ok) return;
-    setMatches((prev) => prev.map((x) => (x.id === riapriPartitaId ? { ...x, chiuso: false } : x)));
+    updateMatchRemote(riapriPartitaId, (x) => ({ ...x, chiuso: false }));
     setRiapriPartitaId("");
     setImportMsg(`Partita vs ${m.avversario || "Avversario"} del ${dataStr} riaperta: ora puoi modificarla dalla tab Partite.`);
   };
@@ -3631,18 +3679,19 @@ function App() {
         return;
       }
       const ok = window.confirm(
-        `Ripristinare questo backup? Partite/partitelle/convocazioni attuali (${matches.length} partite) verranno sostituite. ` +
-          `I ${data.players.length} giocatori e i ${(data.trainings || []).length} allenamenti del backup verranno invece AGGIUNTI a quelli già condivisi su Firestore (non sostituiscono nulla).`
+        `Ripristinare questo backup? Partitelle/convocazioni attuali verranno sostituite. ` +
+          `I ${data.players.length} giocatori, i ${(data.trainings || []).length} allenamenti e le ${(data.matches || []).length} partite del backup verranno invece AGGIUNTI a quelli già condivisi su Firestore (non sostituiscono nulla).`
       );
       if (!ok) return;
       if (typeof window.fsSaveDoc === "function") {
         await Promise.all((data.players || []).map((p) => window.fsSaveDoc("giocatori", p.id, p)));
         await Promise.all((data.trainings || []).map((t) => window.fsSaveDoc("allenamenti", t.id, t)));
+        await Promise.all((data.matches || []).map((m) => window.fsSaveDoc("partite", m.id, m)));
       } else {
         setPlayers(data.players || []);
         setTrainings(data.trainings || []);
+        setMatches(data.matches || []);
       }
-      setMatches(data.matches || []);
       setFriendlies(data.friendlies || []);
       setConvocazioni(data.convocazioni || []);
       if (data.nomeSquadra) setNomeSquadra(data.nomeSquadra);
@@ -3742,11 +3791,12 @@ function App() {
       if (typeof window.fsSaveDoc === "function") {
         await Promise.all(newPlayers.map((p) => window.fsSaveDoc("giocatori", p.id, p)));
         await Promise.all(newTrainings.map((t) => window.fsSaveDoc("allenamenti", t.id, t)));
+        await Promise.all(newMatches.map((m) => window.fsSaveDoc("partite", m.id, m)));
       } else {
         setPlayers((prev) => [...prev, ...newPlayers]);
         setTrainings((prev) => [...prev, ...newTrainings]);
+        setMatches((prev) => [...prev, ...newMatches]);
       }
-      setMatches((prev) => [...prev, ...newMatches]);
       setFriendlies((prev) => [...prev, ...newFriendlies]);
       setConvocazioni((prev) => [...prev, ...newConvocazioni]);
 
@@ -3772,10 +3822,11 @@ function App() {
     }
     if (typeof window.fsSaveDoc === "function") {
       await Promise.all(trainings.map((t) => window.fsSaveDoc("allenamenti", t.id, { ...t, entries: {}, chiuso: false })));
+      await Promise.all(matches.map((m) => window.fsSaveDoc("partite", m.id, { ...m, entries: {}, golFatti: "", golSubiti: "", chiuso: false, live: null })));
     } else {
       setTrainings((prev) => prev.map((t) => ({ ...t, entries: {}, chiuso: false })));
+      setMatches((prev) => prev.map((m) => ({ ...m, entries: {}, golFatti: "", golSubiti: "", chiuso: false })));
     }
-    setMatches((prev) => prev.map((m) => ({ ...m, entries: {}, golFatti: "", golSubiti: "", chiuso: false })));
     setFriendlies((prev) => prev.map((f) => ({ ...f, assegnazioni: {}, risultato: null, rigori: false })));
     setImportMsg("Reset completato: risultati azzerati, calendario e anagrafica mantenuti.");
   };
@@ -4219,7 +4270,7 @@ function App() {
               players={giocatoriCategoria}
               nomeSquadra={nomeSquadra}
               categoria={getCategoria(matches.find((x) => x.id === liveMatchId).categoria || categoriaAttiva)}
-              setMatches={setMatches}
+              onUpdateMatch={updateMatchRemote}
               onClose={() => setLiveMatchId(null)}
             />
           </div>
@@ -4292,8 +4343,13 @@ function App() {
                 {fbTrainingsSync === "offline" && "🔴 non raggiungibili, sto usando l'ultima copia salvata su questo telefono."}
               </p>
               <p className="muted">
-                Partite, partitelle e convocazioni sono ancora solo su questo telefono — verranno spostate sul
-                database condiviso nei prossimi aggiornamenti.
+                <strong>Partite</strong>: {fbMatchesSync === "ok" && "🟢 sincronizzate in tempo reale con tutti gli allenatori (Partita Live inclusa)."}
+                {fbMatchesSync === "connessione" && "🟡 connessione in corso..."}
+                {fbMatchesSync === "offline" && "🔴 non raggiungibili, sto usando l'ultima copia salvata su questo telefono."}
+              </p>
+              <p className="muted">
+                Partitelle e convocazioni sono ancora solo su questo telefono — verranno spostate sul database
+                condiviso nei prossimi aggiornamenti.
               </p>
               <button type="button" className="btn ghost" onClick={testFirebase} disabled={fbTestStato === "verifica"}>
                 <Icon name="Cloud" size={15} /> {fbTestStato === "verifica" ? "Verifica in corso..." : "Verifica connessione"}
