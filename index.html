@@ -26,6 +26,9 @@
         doc,
         setDoc,
         getDoc,
+        deleteDoc,
+        collection,
+        onSnapshot,
       } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
       const firebaseConfig = {
@@ -55,6 +58,34 @@
         } catch (err) {
           return { ok: false, errore: err && err.message ? err.message : String(err) };
         }
+      };
+
+      // Helper generici per sincronizzare una collezione Firestore con lo stato React.
+      // fsSubscribeCollection: ascolta i cambiamenti in tempo reale, richiama callback(arrayDiDocumenti) ad ogni variazione.
+      window.fsSubscribeCollection = function (nomeCollezione, callback, onError) {
+        return onSnapshot(
+          collection(db, nomeCollezione),
+          (snap) => {
+            const arr = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+            callback(arr);
+          },
+          (err) => {
+            console.error("Firestore sync error:", nomeCollezione, err);
+            if (onError) onError(err);
+          }
+        );
+      };
+
+      // fsSaveDoc: crea o aggiorna un documento (sovrascrive interamente con i campi passati).
+      window.fsSaveDoc = function (nomeCollezione, id, dati) {
+        const senzaId = { ...dati };
+        delete senzaId.id;
+        return setDoc(doc(db, nomeCollezione, String(id)), senzaId);
+      };
+
+      // fsDeleteDoc: elimina un documento dalla collezione.
+      window.fsDeleteDoc = function (nomeCollezione, id) {
+        return deleteDoc(doc(db, nomeCollezione, String(id)));
       };
     </script>
   </head>

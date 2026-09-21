@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.93";
+const APP_VERSION = "1.94";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3182,11 +3182,51 @@ function App() {
     } catch (e) {}
   }, [logoSquadra]);
 
+  const [fbPlayersSync, setFbPlayersSync] = useState("connessione"); // 'connessione' | 'ok' | 'offline'
+
   useEffect(() => {
-    try {
-      const p = localStorage.getItem("gs_players");
-      if (p) setPlayers(JSON.parse(p));
-    } catch (e) {}
+    // Giocatori: ora vivono su Firestore, condivisi in tempo reale tra tutti gli allenatori.
+    // Il modulo Firebase (index.html) è caricato come <script type="module">, quindi potrebbe non
+    // essere ancora pronto nell'istante in cui React parte: ritentiamo per qualche secondo.
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeCollection === "function") {
+        unsubscribe = window.fsSubscribeCollection(
+          "giocatori",
+          (arr) => {
+            setPlayers(arr);
+            setFbPlayersSync("ok");
+            try {
+              localStorage.setItem("gs_players", JSON.stringify(arr));
+            } catch (e) {}
+          },
+          () => setFbPlayersSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        // Firebase non disponibile (es. offline al primo avvio): usa l'ultima copia salvata localmente.
+        setFbPlayersSync("offline");
+        try {
+          const p = localStorage.getItem("gs_players");
+          if (p) setPlayers(JSON.parse(p));
+        } catch (e) {}
+      }
+    };
+    prova();
+
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       const t = localStorage.getItem("gs_trainings");
       if (t) setTrainings(JSON.parse(t));
@@ -3205,13 +3245,6 @@ function App() {
     } catch (e) {}
     setLoaded(true);
   }, []);
-
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      localStorage.setItem("gs_players", JSON.stringify(players));
-    } catch (e) {}
-  }, [players, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -3268,15 +3301,29 @@ function App() {
   const scadutiCount = giocatoriCategoria.filter((p) => certStatus(p.scadenzaCertificato).tone !== "ok").length;
 
   const savePlayer = (p) => {
-    setPlayers((prev) => {
-      const exists = prev.some((x) => x.id === p.id);
-      return exists ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p];
-    });
     setEditing(null);
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("giocatori", p.id, p).catch((err) => {
+        console.error("Errore salvataggio giocatore su Firestore:", err);
+        setImportMsg("Errore salvataggio: " + (err && err.message ? err.message : "riprova"));
+      });
+    } else {
+      // Fallback offline: aggiorna solo localmente finché Firestore non è raggiungibile.
+      setPlayers((prev) => {
+        const exists = prev.some((x) => x.id === p.id);
+        return exists ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p];
+      });
+    }
   };
 
   const deletePlayer = (id) => {
-    setPlayers((prev) => prev.filter((p) => p.id !== id));
+    if (typeof window.fsDeleteDoc === "function") {
+      window.fsDeleteDoc("giocatori", id).catch((err) => {
+        console.error("Errore eliminazione giocatore su Firestore:", err);
+      });
+    } else {
+      setPlayers((prev) => prev.filter((p) => p.id !== id));
+    }
   };
 
   const sortedTrainings = useMemo(
@@ -3476,8 +3523,14 @@ function App() {
         setImportMsg("Nessuna riga valida trovata (serve almeno Cognome o Nome).");
         return;
       }
-      setPlayers((prev) => [...prev, ...nuovi]);
-      setImportMsg(`Importati ${nuovi.length} giocatori.`);
+      if (typeof window.fsSaveDoc === "function") {
+        setImportMsg(`Caricamento di ${nuovi.length} giocatori su Firestore...`);
+        await Promise.all(nuovi.map((p) => window.fsSaveDoc("giocatori", p.id, p)));
+        setImportMsg(`Importati ${nuovi.length} giocatori.`);
+      } else {
+        setPlayers((prev) => [...prev, ...nuovi]);
+        setImportMsg(`Importati ${nuovi.length} giocatori (solo localmente, Firestore non raggiungibile).`);
+      }
     } catch (err) {
       setImportMsg("Errore nella lettura del file. Controlla che sia un .xlsx valido.");
     }
@@ -3536,10 +3589,15 @@ function App() {
         return;
       }
       const ok = window.confirm(
-        `Ripristinare questo backup? Sostituirà i dati attuali (${players.length} giocatori, ${trainings.length} allenamenti, ${matches.length} partite).`
+        `Ripristinare questo backup? Allenamenti/partite/partitelle/convocazioni attuali (${trainings.length} allenamenti, ${matches.length} partite) verranno sostituiti. ` +
+          `I ${data.players.length} giocatori del backup verranno invece AGGIUNTI a quelli già condivisi su Firestore (non sostituiscono nulla, essendo ora un database comune a tutti gli allenatori).`
       );
       if (!ok) return;
-      setPlayers(data.players || []);
+      if (typeof window.fsSaveDoc === "function") {
+        await Promise.all((data.players || []).map((p) => window.fsSaveDoc("giocatori", p.id, p)));
+      } else {
+        setPlayers(data.players || []);
+      }
       setTrainings(data.trainings || []);
       setMatches(data.matches || []);
       setFriendlies(data.friendlies || []);
@@ -3638,7 +3696,11 @@ function App() {
         convocatiIds: (c.convocatiIds || []).map((pid) => playerIdMap[pid] || pid),
       }));
 
-      setPlayers((prev) => [...prev, ...newPlayers]);
+      if (typeof window.fsSaveDoc === "function") {
+        await Promise.all(newPlayers.map((p) => window.fsSaveDoc("giocatori", p.id, p)));
+      } else {
+        setPlayers((prev) => [...prev, ...newPlayers]);
+      }
       setTrainings((prev) => [...prev, ...newTrainings]);
       setMatches((prev) => [...prev, ...newMatches]);
       setFriendlies((prev) => [...prev, ...newFriendlies]);
@@ -4169,11 +4231,16 @@ function App() {
 
             <div className="settings-section">
               <div className="settings-title">
-                <Icon name="Cloud" size={16} /> Database condiviso (Firebase) — test
+                <Icon name="Cloud" size={16} /> Database condiviso (Firebase)
               </div>
               <p className="muted">
-                Verifica solo che l'app riesca a parlare con il database cloud. I tuoi dati restano ancora sul
-                telefono come prima: nessuna modifica reale finché non completiamo la migrazione.
+                <strong>Anagrafica giocatori</strong>: {fbPlayersSync === "ok" && "🟢 sincronizzata in tempo reale con tutti gli allenatori."}
+                {fbPlayersSync === "connessione" && "🟡 connessione in corso..."}
+                {fbPlayersSync === "offline" && "🔴 non raggiungibile, sto usando l'ultima copia salvata su questo telefono."}
+              </p>
+              <p className="muted">
+                Allenamenti, partite, partitelle e convocazioni sono ancora solo su questo telefono — verranno
+                spostati sul database condiviso nei prossimi aggiornamenti.
               </p>
               <button type="button" className="btn ghost" onClick={testFirebase} disabled={fbTestStato === "verifica"}>
                 <Icon name="Cloud" size={15} /> {fbTestStato === "verifica" ? "Verifica in corso..." : "Verifica connessione"}
