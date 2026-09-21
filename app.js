@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.00";
+const APP_VERSION = "2.02";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -2067,7 +2067,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
           (m) => ["titolare", "subentrato"].includes(m.entries[p.id]?.stato) && Number(m.entries[p.id]?.minutaggio) > 0
         ).length;
         const sostituito = matches.filter((m) => m.entries[p.id]?.stato === "titolare" && m.entries[p.id]?.sostituito).length;
-        const riservaMaiEntrata = matches.filter((m) => m.entries[p.id]?.stato === "riserva").length;
         const convocato = matches.filter((m) => ["titolare", "riserva", "subentrato", "infortunato", "assente"].includes(m.entries[p.id]?.stato)).length;
         const nonConvocato = matches.filter((m) => m.entries[p.id]?.stato === "non_convocato").length;
         return {
@@ -2079,7 +2078,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
           partiteGiocate,
           minutiGiocati,
           sostituito,
-          riservaMaiEntrata,
           convocato,
           nonConvocato,
           gialli,
@@ -2248,7 +2246,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
           <span title="Partite giocate">Partite</span>
           <span title="Minuti totali giocati">Minuti</span>
           <span title="Sostituito">Sostit.</span>
-          <span title="Riserva mai entrata">Riserva<br />mai entr.</span>
           <span title="Convocato">Convoc.</span>
           <span title="Non convocato">Non<br />conv.</span>
           <span title="Cartellini gialli">🟨</span>
@@ -2266,7 +2263,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
               <span className="report-val">{r.partiteGiocate}</span>
               <span className="report-val">{r.minutiGiocati}'</span>
               <span className="report-val">{r.sostituito}</span>
-              <span className="report-val">{r.riservaMaiEntrata}</span>
               <span className="report-val">{r.convocato}</span>
               <span className="report-val">{r.nonConvocato}</span>
               <span className="report-val">{r.gialli}</span>
@@ -2454,7 +2450,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
                   <th>Partite</th>
                   <th>Minuti</th>
                   <th>Sostit.</th>
-                  <th>Riserva mai entr.</th>
                   <th>Convoc.</th>
                   <th>Non conv.</th>
                   <th>Gialli</th>
@@ -2471,7 +2466,6 @@ function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
                     <td>{r.partiteGiocate}</td>
                     <td>{r.minutiGiocati}'</td>
                     <td>{r.sostituito}</td>
-                    <td>{r.riservaMaiEntrata}</td>
                     <td>{r.convocato}</td>
                     <td>{r.nonConvocato}</td>
                     <td>{r.gialli}</td>
@@ -4406,7 +4400,7 @@ function App() {
               </div>
             </div>
             {unlocked ? (
-              <ReportTab players={giocatoriCategoria} trainings={trainings} matches={matches} nomeSquadra={nomeSquadra} logoSquadra={logoSquadra} />
+              <ReportTab players={giocatoriCategoria} trainings={sortedTrainings} matches={sortedMatches} nomeSquadra={nomeSquadra} logoSquadra={logoSquadra} />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
@@ -4421,7 +4415,7 @@ function App() {
               </div>
             </div>
             {unlocked ? (
-              <TeamReportTab matches={matches} nomeSquadra={nomeSquadra} />
+              <TeamReportTab matches={sortedMatches} nomeSquadra={nomeSquadra} />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
@@ -4519,7 +4513,7 @@ function App() {
             <FriendlyForm
               initial={editingFriendly}
               players={giocatoriCategoria}
-              trainings={trainings}
+              trainings={sortedTrainings}
               onSave={saveFriendly}
               onCancel={() => setEditingFriendly(null)}
             />
@@ -4533,7 +4527,7 @@ function App() {
             <ConvocazioneForm
               initial={editingConvocazione}
               players={giocatoriCategoria}
-              matches={matches}
+              matches={sortedMatches}
               onSave={saveConvocazione}
               onCancel={() => setEditingConvocazione(null)}
             />
