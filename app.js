@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.02";
+const APP_VERSION = "2.03";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3686,7 +3686,7 @@ function App() {
     }
   };
 
-  const classifica = useMemo(() => calcolaClassifica(players, friendlies), [players, friendlies]);
+  const classifica = useMemo(() => calcolaClassifica(giocatoriCategoria, sortedFriendlies), [giocatoriCategoria, sortedFriendlies]);
 
   const COLONNE_EXCEL = {
     cognome: ["cognome"],
