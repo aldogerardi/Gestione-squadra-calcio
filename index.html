@@ -76,6 +76,20 @@
         );
       };
 
+      // fsSubscribeDoc: ascolta un singolo documento (per impostazioni condivise, non collezioni intere).
+      window.fsSubscribeDoc = function (nomeCollezione, idDoc, callback, onError) {
+        return onSnapshot(
+          doc(db, nomeCollezione, idDoc),
+          (snap) => {
+            callback(snap.exists() ? snap.data() : null);
+          },
+          (err) => {
+            console.error("Firestore doc sync error:", nomeCollezione, idDoc, err);
+            if (onError) onError(err);
+          }
+        );
+      };
+
       // fsSaveDoc: crea o aggiorna un documento (sovrascrive interamente con i campi passati).
       window.fsSaveDoc = function (nomeCollezione, id, dati) {
         const senzaId = { ...dati };

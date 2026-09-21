@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.97";
+const APP_VERSION = "1.99";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3082,6 +3082,55 @@ function App() {
       return "Rosa Squadra";
     }
   });
+  const [fbNomeSquadraSync, setFbNomeSquadraSync] = useState("connessione");
+
+  useEffect(() => {
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeDoc === "function") {
+        unsubscribe = window.fsSubscribeDoc(
+          "impostazioni",
+          "club",
+          (dati) => {
+            setFbNomeSquadraSync("ok");
+            if (dati && dati.nomeSquadra) {
+              setNomeSquadra(dati.nomeSquadra);
+              try {
+                localStorage.setItem("gs_nome_squadra", dati.nomeSquadra);
+              } catch (e) {}
+            }
+          },
+          () => setFbNomeSquadraSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setFbNomeSquadraSync("offline");
+      }
+    };
+    prova();
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const salvaNomeSquadra = (nome) => {
+    setNomeSquadra(nome);
+    try {
+      localStorage.setItem("gs_nome_squadra", nome);
+    } catch (e) {}
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("impostazioni", "club", { nomeSquadra: nome }).catch((err) => {
+        console.error("Errore salvataggio nome squadra su Firestore:", err);
+      });
+    }
+  };
+
   const [logoSquadra, setLogoSquadra] = useState(() => {
     try {
       return localStorage.getItem("gs_logo_squadra") || "";
@@ -3089,6 +3138,28 @@ function App() {
       return "";
     }
   });
+  const [accessoOk, setAccessoOk] = useState(() => {
+    try {
+      return localStorage.getItem("gs_accesso_ok") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
+  const [pinInput, setPinInput] = useState("");
+  const [pinErrore, setPinErrore] = useState(false);
+  const provaPin = (e) => {
+    e.preventDefault();
+    if (pinInput.trim() === "145836") {
+      try {
+        localStorage.setItem("gs_accesso_ok", "true");
+      } catch (err) {}
+      setAccessoOk(true);
+      setPinErrore(false);
+    } else {
+      setPinErrore(true);
+    }
+  };
+
   const [categoriaAttiva, setCategoriaAttiva] = useState(() => {
     try {
       const v = localStorage.getItem("gs_categoria_attiva");
@@ -3160,12 +3231,6 @@ function App() {
       setUnlockMsg("❌ Codice non valido. Controlla di averlo copiato correttamente.");
     }
   };
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("gs_nome_squadra", nomeSquadra);
-    } catch (e) {}
-  }, [nomeSquadra]);
 
   useEffect(() => {
     try {
@@ -3764,7 +3829,7 @@ function App() {
         setFriendlies(data.friendlies || []);
         setConvocazioni(data.convocazioni || []);
       }
-      if (data.nomeSquadra) setNomeSquadra(data.nomeSquadra);
+      if (data.nomeSquadra) salvaNomeSquadra(data.nomeSquadra);
       if (data.logoSquadra !== undefined) setLogoSquadra(data.logoSquadra || "");
       if (data.categoriaAttiva && CATEGORIE.some((c) => c.id === data.categoriaAttiva)) setCategoriaAttiva(data.categoriaAttiva);
       if (data.unlocked === true) {
@@ -3913,6 +3978,39 @@ function App() {
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
   ];
+
+  if (!accessoOk) {
+    return (
+      <div className="app">
+        <style>{css}</style>
+        <div className="accesso-gate">
+          <div className="accesso-box">
+            <span className="brand-mark">⚽</span>
+            <h1>Rosa Squadra</h1>
+            <p className="muted">Inserisci il codice di accesso condiviso con lo staff.</p>
+            <form onSubmit={provaPin}>
+              <input
+                type="tel"
+                inputMode="numeric"
+                autoFocus
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  setPinErrore(false);
+                }}
+                placeholder="Codice di accesso"
+                className="accesso-input"
+              />
+              {pinErrore && <p className="accesso-errore">Codice errato, riprova.</p>}
+              <button type="submit" className="btn primary" style={{ width: "100%", marginTop: 12 }}>
+                Entra
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
@@ -4484,15 +4582,21 @@ function App() {
               <div className="settings-title">
                 <Icon name="Shield" size={16} /> Personalizza squadra
               </div>
-              <label className="field" style={{ marginBottom: 10 }}>
+              <label className="field" style={{ marginBottom: 4 }}>
                 <span className="field-label">Nome della rosa</span>
                 <input
                   type="text"
                   value={nomeSquadra}
                   onChange={(e) => setNomeSquadra(e.target.value)}
+                  onBlur={(e) => salvaNomeSquadra(e.target.value)}
                   placeholder="Rosa Squadra"
                 />
               </label>
+              <p className="muted" style={{ marginBottom: 10 }}>
+                {fbNomeSquadraSync === "ok" && "🟢 condiviso con tutti gli allenatori — cambialo qui e lo vedranno tutti."}
+                {fbNomeSquadraSync === "connessione" && "🟡 connessione in corso..."}
+                {fbNomeSquadraSync === "offline" && "🔴 non raggiungibile, salvato solo su questo telefono per ora."}
+              </p>
               <p className="muted">Logo squadra (mostrato al posto del pallone in alto)</p>
               <div className="logo-row">
                 {logoSquadra ? (
@@ -4704,6 +4808,42 @@ const css = `
     font-weight: 700;
     flex-shrink: 0;
   }
+  .accesso-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--pitch-dark);
+  }
+  .accesso-box {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 32px 28px;
+    max-width: 340px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  }
+  .accesso-box .brand-mark { font-size: 40px; display: block; margin-bottom: 6px; }
+  .accesso-box h1 {
+    font-family: 'Oswald', 'Barlow Condensed', sans-serif;
+    font-size: 22px;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+    color: var(--pitch-dark);
+  }
+  .accesso-input {
+    width: 100%;
+    text-align: center;
+    font-size: 18px;
+    letter-spacing: 4px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    margin-top: 14px;
+  }
+  .accesso-errore { color: var(--danger); font-size: 13px; font-weight: 700; margin-top: 8px; }
   .topbar {
     background: var(--pitch-dark);
     color: white;
