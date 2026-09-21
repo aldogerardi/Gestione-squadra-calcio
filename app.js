@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.96";
+const APP_VERSION = "1.97";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3016,7 +3016,6 @@ function App() {
   const [matches, setMatches] = useState([]);
   const [friendlies, setFriendlies] = useState([]);
   const [convocazioni, setConvocazioni] = useState([]);
-  const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editingTraining, setEditingTraining] = useState(null);
   const [reportTraining, setReportTraining] = useState(null);
@@ -3312,31 +3311,80 @@ function App() {
     }
   };
 
+  const [fbFriendliesSync, setFbFriendliesSync] = useState("connessione");
+  const [fbConvocazioniSync, setFbConvocazioniSync] = useState("connessione");
+
   useEffect(() => {
-    try {
-      const f = localStorage.getItem("gs_friendlies");
-      if (f) setFriendlies(JSON.parse(f));
-    } catch (e) {}
-    try {
-      const c = localStorage.getItem("gs_convocazioni");
-      if (c) setConvocazioni(JSON.parse(c));
-    } catch (e) {}
-    setLoaded(true);
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeCollection === "function") {
+        unsubscribe = window.fsSubscribeCollection(
+          "partitelle",
+          (arr) => {
+            setFriendlies(arr);
+            setFbFriendliesSync("ok");
+            try {
+              localStorage.setItem("gs_friendlies", JSON.stringify(arr));
+            } catch (e) {}
+          },
+          () => setFbFriendliesSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setFbFriendliesSync("offline");
+        try {
+          const f = localStorage.getItem("gs_friendlies");
+          if (f) setFriendlies(JSON.parse(f));
+        } catch (e) {}
+      }
+    };
+    prova();
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
-    try {
-      localStorage.setItem("gs_friendlies", JSON.stringify(friendlies));
-    } catch (e) {}
-  }, [friendlies, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      localStorage.setItem("gs_convocazioni", JSON.stringify(convocazioni));
-    } catch (e) {}
-  }, [convocazioni, loaded]);
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeCollection === "function") {
+        unsubscribe = window.fsSubscribeCollection(
+          "convocazioni",
+          (arr) => {
+            setConvocazioni(arr);
+            setFbConvocazioniSync("ok");
+            try {
+              localStorage.setItem("gs_convocazioni", JSON.stringify(arr));
+            } catch (e) {}
+          },
+          () => setFbConvocazioniSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setFbConvocazioniSync("offline");
+        try {
+          const c = localStorage.getItem("gs_convocazioni");
+          if (c) setConvocazioni(JSON.parse(c));
+        } catch (e) {}
+      }
+    };
+    prova();
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   const [ordinamento, setOrdinamento] = useState("alfabetico");
 
@@ -3477,27 +3525,47 @@ function App() {
   }, [friendlies, trainings, categoriaAttiva, modalitaDirettore]);
 
   const saveFriendly = (f) => {
-    setFriendlies((prev) => {
-      const exists = prev.some((x) => x.id === f.id);
-      return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [...prev, f];
-    });
     setEditingFriendly(null);
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("partitelle", f.id, f).catch((err) => {
+        console.error("Errore salvataggio partitella su Firestore:", err);
+      });
+    } else {
+      setFriendlies((prev) => {
+        const exists = prev.some((x) => x.id === f.id);
+        return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [...prev, f];
+      });
+    }
   };
 
   const deleteFriendly = (id) => {
-    setFriendlies((prev) => prev.filter((f) => f.id !== id));
+    if (typeof window.fsDeleteDoc === "function") {
+      window.fsDeleteDoc("partitelle", id).catch((err) => console.error(err));
+    } else {
+      setFriendlies((prev) => prev.filter((f) => f.id !== id));
+    }
   };
 
   const saveConvocazione = (c) => {
-    setConvocazioni((prev) => {
-      const exists = prev.some((x) => x.id === c.id);
-      return exists ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, c];
-    });
     setEditingConvocazione(null);
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("convocazioni", c.id, c).catch((err) => {
+        console.error("Errore salvataggio convocazione su Firestore:", err);
+      });
+    } else {
+      setConvocazioni((prev) => {
+        const exists = prev.some((x) => x.id === c.id);
+        return exists ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, c];
+      });
+    }
   };
 
   const deleteConvocazione = (id) => {
-    setConvocazioni((prev) => prev.filter((c) => c.id !== id));
+    if (typeof window.fsDeleteDoc === "function") {
+      window.fsDeleteDoc("convocazioni", id).catch((err) => console.error(err));
+    } else {
+      setConvocazioni((prev) => prev.filter((c) => c.id !== id));
+    }
   };
 
   const classifica = useMemo(() => calcolaClassifica(players, friendlies), [players, friendlies]);
@@ -3679,21 +3747,23 @@ function App() {
         return;
       }
       const ok = window.confirm(
-        `Ripristinare questo backup? Partitelle/convocazioni attuali verranno sostituite. ` +
-          `I ${data.players.length} giocatori, i ${(data.trainings || []).length} allenamenti e le ${(data.matches || []).length} partite del backup verranno invece AGGIUNTI a quelli già condivisi su Firestore (non sostituiscono nulla).`
+        `Ripristinare questo backup? I giocatori, allenamenti, partite, partitelle e convocazioni del backup verranno AGGIUNTI ` +
+          `a quelli già condivisi su Firestore (non sostituiscono nulla, essendo ora un database comune a tutti gli allenatori).`
       );
       if (!ok) return;
       if (typeof window.fsSaveDoc === "function") {
         await Promise.all((data.players || []).map((p) => window.fsSaveDoc("giocatori", p.id, p)));
         await Promise.all((data.trainings || []).map((t) => window.fsSaveDoc("allenamenti", t.id, t)));
         await Promise.all((data.matches || []).map((m) => window.fsSaveDoc("partite", m.id, m)));
+        await Promise.all((data.friendlies || []).map((f) => window.fsSaveDoc("partitelle", f.id, f)));
+        await Promise.all((data.convocazioni || []).map((c) => window.fsSaveDoc("convocazioni", c.id, c)));
       } else {
         setPlayers(data.players || []);
         setTrainings(data.trainings || []);
         setMatches(data.matches || []);
+        setFriendlies(data.friendlies || []);
+        setConvocazioni(data.convocazioni || []);
       }
-      setFriendlies(data.friendlies || []);
-      setConvocazioni(data.convocazioni || []);
       if (data.nomeSquadra) setNomeSquadra(data.nomeSquadra);
       if (data.logoSquadra !== undefined) setLogoSquadra(data.logoSquadra || "");
       if (data.categoriaAttiva && CATEGORIE.some((c) => c.id === data.categoriaAttiva)) setCategoriaAttiva(data.categoriaAttiva);
@@ -3792,13 +3862,15 @@ function App() {
         await Promise.all(newPlayers.map((p) => window.fsSaveDoc("giocatori", p.id, p)));
         await Promise.all(newTrainings.map((t) => window.fsSaveDoc("allenamenti", t.id, t)));
         await Promise.all(newMatches.map((m) => window.fsSaveDoc("partite", m.id, m)));
+        await Promise.all(newFriendlies.map((f) => window.fsSaveDoc("partitelle", f.id, f)));
+        await Promise.all(newConvocazioni.map((c) => window.fsSaveDoc("convocazioni", c.id, c)));
       } else {
         setPlayers((prev) => [...prev, ...newPlayers]);
         setTrainings((prev) => [...prev, ...newTrainings]);
         setMatches((prev) => [...prev, ...newMatches]);
+        setFriendlies((prev) => [...prev, ...newFriendlies]);
+        setConvocazioni((prev) => [...prev, ...newConvocazioni]);
       }
-      setFriendlies((prev) => [...prev, ...newFriendlies]);
-      setConvocazioni((prev) => [...prev, ...newConvocazioni]);
 
       setImportMsg(
         `Importati: ${newPlayers.length} giocatori, ${newTrainings.length} allenamenti, ${newMatches.length} partite. I tuoi dati esistenti sono rimasti intatti.`
@@ -3823,11 +3895,12 @@ function App() {
     if (typeof window.fsSaveDoc === "function") {
       await Promise.all(trainings.map((t) => window.fsSaveDoc("allenamenti", t.id, { ...t, entries: {}, chiuso: false })));
       await Promise.all(matches.map((m) => window.fsSaveDoc("partite", m.id, { ...m, entries: {}, golFatti: "", golSubiti: "", chiuso: false, live: null })));
+      await Promise.all(friendlies.map((f) => window.fsSaveDoc("partitelle", f.id, { ...f, assegnazioni: {}, risultato: null, rigori: false })));
     } else {
       setTrainings((prev) => prev.map((t) => ({ ...t, entries: {}, chiuso: false })));
       setMatches((prev) => prev.map((m) => ({ ...m, entries: {}, golFatti: "", golSubiti: "", chiuso: false })));
+      setFriendlies((prev) => prev.map((f) => ({ ...f, assegnazioni: {}, risultato: null, rigori: false })));
     }
-    setFriendlies((prev) => prev.map((f) => ({ ...f, assegnazioni: {}, risultato: null, rigori: false })));
     setImportMsg("Reset completato: risultati azzerati, calendario e anagrafica mantenuti.");
   };
 
@@ -4348,8 +4421,17 @@ function App() {
                 {fbMatchesSync === "offline" && "🔴 non raggiungibili, sto usando l'ultima copia salvata su questo telefono."}
               </p>
               <p className="muted">
-                Partitelle e convocazioni sono ancora solo su questo telefono — verranno spostate sul database
-                condiviso nei prossimi aggiornamenti.
+                <strong>Partitelle</strong>: {fbFriendliesSync === "ok" && "🟢 sincronizzate in tempo reale."}
+                {fbFriendliesSync === "connessione" && "🟡 connessione in corso..."}
+                {fbFriendliesSync === "offline" && "🔴 non raggiungibili, sto usando l'ultima copia salvata su questo telefono."}
+              </p>
+              <p className="muted">
+                <strong>Convocazioni</strong>: {fbConvocazioniSync === "ok" && "🟢 sincronizzate in tempo reale."}
+                {fbConvocazioniSync === "connessione" && "🟡 connessione in corso..."}
+                {fbConvocazioniSync === "offline" && "🔴 non raggiungibili, sto usando l'ultima copia salvata su questo telefono."}
+              </p>
+              <p className="muted" style={{ fontWeight: 700, color: "#2D6A4F" }}>
+                🎉 Migrazione completa: tutti i dati sono ora condivisi in tempo reale tra tutti gli allenatori.
               </p>
               <button type="button" className="btn ghost" onClick={testFirebase} disabled={fbTestStato === "verifica"}>
                 <Icon name="Cloud" size={15} /> {fbTestStato === "verifica" ? "Verifica in corso..." : "Verifica connessione"}
