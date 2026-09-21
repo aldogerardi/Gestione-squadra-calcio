@@ -30,6 +30,12 @@
         collection,
         onSnapshot,
       } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+      import {
+        getAuth,
+        signInWithEmailAndPassword,
+        signOut,
+        onAuthStateChanged,
+      } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
       const firebaseConfig = {
         apiKey: "AIzaSyDNUTTBpTISDS0iHe_3NKyQy8zNTL2ICA8",
@@ -42,10 +48,26 @@
 
       const fbApp = initializeApp(firebaseConfig);
       const db = getFirestore(fbApp);
+      const auth = getAuth(fbApp);
 
       // Esposti su window così il codice React (caricato via Babel, non come modulo) può usarli.
       window.__firebaseDb = db;
       window.__firebaseReady = true;
+
+      const ACCOUNT_STAFF_EMAIL = "staff@rosa-squadra.app";
+
+      // Accesso: l'app entra con l'account staff condiviso usando il codice inserito come password.
+      window.fsSignIn = function (codice) {
+        return signInWithEmailAndPassword(auth, ACCOUNT_STAFF_EMAIL, codice).then(() => true);
+      };
+      window.fsSignOut = function () {
+        return signOut(auth);
+      };
+      // fsOnAuthChange: richiama callback(true/false) quando cambia lo stato di accesso
+      // (incluso al caricamento, se la sessione era già salva dal browser).
+      window.fsOnAuthChange = function (callback) {
+        return onAuthStateChanged(auth, (user) => callback(!!user));
+      };
 
       // Test di andata e ritorno: scrive un documento diagnostico e lo rilegge subito.
       window.firebaseTestConnessione = async function () {

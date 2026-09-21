@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.99";
+const APP_VERSION = "2.00";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3040,8 +3040,14 @@ function App() {
   useEffect(() => {
     if (!swUpdateReg) return;
     if (swCountdown <= 0) {
-      if (swUpdateReg.waiting) swUpdateReg.waiting.postMessage({ type: "SKIP_WAITING" });
-      return;
+      if (swUpdateReg.waiting) {
+        swUpdateReg.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
+      // Rete di sicurezza: se per qualche motivo il service worker non prende il controllo
+      // (e quindi l'evento "controllerchange" non scatta), forziamo comunque il ricaricamento
+      // dopo pochi secondi, invece di lasciare l'app bloccata sulla versione vecchia.
+      const forzatura = setTimeout(() => window.location.reload(), 4000);
+      return () => clearTimeout(forzatura);
     }
     const t = setTimeout(() => setSwCountdown((n) => n - 1), 1000);
     return () => clearTimeout(t);
@@ -3050,7 +3056,7 @@ function App() {
   const [editingConvocazione, setEditingConvocazione] = useState(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("anagrafica");
-  const touchRef = useRef({ x: 0, y: 0 });
+  const touchRef = useRef({ x: 0, y: 0, ignora: false });
 
   const cambiaTabSwipe = (direzione) => {
     const ids = ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
@@ -3062,10 +3068,25 @@ function App() {
 
   const onContentTouchStart = (e) => {
     const t = e.touches[0];
-    touchRef.current = { x: t.clientX, y: t.clientY };
+    // Se il tocco parte dentro una tabella/elemento che scorre già in orizzontale
+    // (es. il report largo), non cambiamo sezione: lasciamo scorrere quello.
+    let el = e.target;
+    let ignora = false;
+    while (el && el !== e.currentTarget) {
+      if (el.scrollWidth > el.clientWidth + 4) {
+        const overflowX = window.getComputedStyle(el).overflowX;
+        if (overflowX === "auto" || overflowX === "scroll") {
+          ignora = true;
+          break;
+        }
+      }
+      el = el.parentElement;
+    }
+    touchRef.current = { x: t.clientX, y: t.clientY, ignora };
   };
 
   const onContentTouchEnd = (e) => {
+    if (touchRef.current.ignora) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - touchRef.current.x;
     const dy = t.clientY - touchRef.current.y;
@@ -3075,6 +3096,51 @@ function App() {
   };
   const [showSettings, setShowSettings] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+
+  const [accessoOk, setAccessoOk] = useState(null); // null = verifica in corso, true/false = esito
+  const [pinInput, setPinInput] = useState("");
+  const [pinErrore, setPinErrore] = useState(false);
+  const [pinVerifica, setPinVerifica] = useState(false);
+
+  useEffect(() => {
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsOnAuthChange === "function") {
+        unsubscribe = window.fsOnAuthChange((loggato) => setAccessoOk(loggato));
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setAccessoOk(false);
+      }
+    };
+    prova();
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const provaPin = async (e) => {
+    e.preventDefault();
+    if (typeof window.fsSignIn !== "function") {
+      setPinErrore(true);
+      return;
+    }
+    setPinVerifica(true);
+    setPinErrore(false);
+    try {
+      await window.fsSignIn(pinInput.trim());
+      // accessoOk passa a true da solo tramite fsOnAuthChange qui sopra.
+    } catch (err) {
+      setPinErrore(true);
+    }
+    setPinVerifica(false);
+  };
+
   const [nomeSquadra, setNomeSquadra] = useState(() => {
     try {
       return localStorage.getItem("gs_nome_squadra") || "Rosa Squadra";
@@ -3088,6 +3154,7 @@ function App() {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
     const prova = () => {
       if (annullato) return;
       if (typeof window.fsSubscribeDoc === "function") {
@@ -3101,6 +3168,14 @@ function App() {
               try {
                 localStorage.setItem("gs_nome_squadra", dati.nomeSquadra);
               } catch (e) {}
+            } else if (!dati && typeof window.fsSaveDoc === "function") {
+              // Nessuno ha ancora salvato un nome condiviso: lo creiamo noi con quello che
+              // abbiamo già su questo telefono, così diventa la base per tutti gli allenatori.
+              let nomeLocale = "Rosa Squadra";
+              try {
+                nomeLocale = localStorage.getItem("gs_nome_squadra") || "Rosa Squadra";
+              } catch (e) {}
+              window.fsSaveDoc("impostazioni", "club", { nomeSquadra: nomeLocale }).catch(() => {});
             }
           },
           () => setFbNomeSquadraSync("offline")
@@ -3117,7 +3192,7 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   const salvaNomeSquadra = (nome) => {
     setNomeSquadra(nome);
@@ -3138,27 +3213,6 @@ function App() {
       return "";
     }
   });
-  const [accessoOk, setAccessoOk] = useState(() => {
-    try {
-      return localStorage.getItem("gs_accesso_ok") === "true";
-    } catch (e) {
-      return false;
-    }
-  });
-  const [pinInput, setPinInput] = useState("");
-  const [pinErrore, setPinErrore] = useState(false);
-  const provaPin = (e) => {
-    e.preventDefault();
-    if (pinInput.trim() === "145836") {
-      try {
-        localStorage.setItem("gs_accesso_ok", "true");
-      } catch (err) {}
-      setAccessoOk(true);
-      setPinErrore(false);
-    } else {
-      setPinErrore(true);
-    }
-  };
 
   const [categoriaAttiva, setCategoriaAttiva] = useState(() => {
     try {
@@ -3248,6 +3302,7 @@ function App() {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
 
     const prova = () => {
       if (annullato) return;
@@ -3281,7 +3336,7 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   const [fbTrainingsSync, setFbTrainingsSync] = useState("connessione");
 
@@ -3289,6 +3344,7 @@ function App() {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
 
     const prova = () => {
       if (annullato) return;
@@ -3321,7 +3377,7 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   const [fbMatchesSync, setFbMatchesSync] = useState("connessione");
 
@@ -3329,6 +3385,7 @@ function App() {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
 
     const prova = () => {
       if (annullato) return;
@@ -3361,7 +3418,7 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   const updateMatchRemote = (id, updater) => {
     const current = matches.find((x) => x.id === id);
@@ -3383,6 +3440,7 @@ function App() {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
     const prova = () => {
       if (annullato) return;
       if (typeof window.fsSubscribeCollection === "function") {
@@ -3413,12 +3471,13 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   useEffect(() => {
     let unsubscribe = null;
     let tentativi = 0;
     let annullato = false;
+    if (!accessoOk) return;
     const prova = () => {
       if (annullato) return;
       if (typeof window.fsSubscribeCollection === "function") {
@@ -3449,7 +3508,7 @@ function App() {
       annullato = true;
       if (unsubscribe) unsubscribe();
     };
-  }, []);
+  }, [accessoOk]);
 
   const [ordinamento, setOrdinamento] = useState("alfabetico");
 
@@ -3979,7 +4038,7 @@ function App() {
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
   ];
 
-  if (!accessoOk) {
+  if (accessoOk !== true) {
     return (
       <div className="app">
         <style>{css}</style>
@@ -3987,25 +4046,31 @@ function App() {
           <div className="accesso-box">
             <span className="brand-mark">⚽</span>
             <h1>Rosa Squadra</h1>
-            <p className="muted">Inserisci il codice di accesso condiviso con lo staff.</p>
-            <form onSubmit={provaPin}>
-              <input
-                type="tel"
-                inputMode="numeric"
-                autoFocus
-                value={pinInput}
-                onChange={(e) => {
-                  setPinInput(e.target.value);
-                  setPinErrore(false);
-                }}
-                placeholder="Codice di accesso"
-                className="accesso-input"
-              />
-              {pinErrore && <p className="accesso-errore">Codice errato, riprova.</p>}
-              <button type="submit" className="btn primary" style={{ width: "100%", marginTop: 12 }}>
-                Entra
-              </button>
-            </form>
+            {accessoOk === null ? (
+              <p className="muted">Verifica accesso in corso...</p>
+            ) : (
+              <>
+                <p className="muted">Inserisci il codice di accesso condiviso con lo staff.</p>
+                <form onSubmit={provaPin}>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    autoFocus
+                    value={pinInput}
+                    onChange={(e) => {
+                      setPinInput(e.target.value);
+                      setPinErrore(false);
+                    }}
+                    placeholder="Codice di accesso"
+                    className="accesso-input"
+                  />
+                  {pinErrore && <p className="accesso-errore">Codice errato, riprova.</p>}
+                  <button type="submit" className="btn primary" disabled={pinVerifica} style={{ width: "100%", marginTop: 12 }}>
+                    {pinVerifica ? "Verifica..." : "Entra"}
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </div>
