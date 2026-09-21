@@ -17,6 +17,46 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script type="module">
+      // Firebase caricato come modulo ES direttamente dal browser: nessun bundler/npm necessario.
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+      import {
+        getFirestore,
+        doc,
+        setDoc,
+        getDoc,
+      } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyDNUTTBpTISDS0iHe_3NKyQy8zNTL2ICA8",
+        authDomain: "gestione-squadra-838b3.firebaseapp.com",
+        projectId: "gestione-squadra-838b3",
+        storageBucket: "gestione-squadra-838b3.firebasestorage.app",
+        messagingSenderId: "25860570730",
+        appId: "1:25860570730:web:0737913899f8f7d4c55413",
+      };
+
+      const fbApp = initializeApp(firebaseConfig);
+      const db = getFirestore(fbApp);
+
+      // Esposti su window così il codice React (caricato via Babel, non come modulo) può usarli.
+      window.__firebaseDb = db;
+      window.__firebaseReady = true;
+
+      // Test di andata e ritorno: scrive un documento diagnostico e lo rilegge subito.
+      window.firebaseTestConnessione = async function () {
+        try {
+          const ref = doc(db, "_diagnostica", "ping");
+          await setDoc(ref, { ultimoTest: new Date().toISOString(), da: "rosa-squadra-app" });
+          const snap = await getDoc(ref);
+          if (snap.exists()) return { ok: true };
+          return { ok: false, errore: "Scrittura riuscita ma lettura vuota" };
+        } catch (err) {
+          return { ok: false, errore: err && err.message ? err.message : String(err) };
+        }
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>

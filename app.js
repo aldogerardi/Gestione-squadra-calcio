@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "1.92";
+const APP_VERSION = "1.93";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -40,7 +40,7 @@ const ICONS = {
   Check: "\u2713", Square: "\u25AB", ArrowRightLeft: "\u21C4",
   Settings: "\u2699", FileUp: "\uD83D\uDCE5", Save: "\uD83D\uDCBE", RotateCcw: "\u267B",
   Shuffle: "\uD83D\uDD00", Medal: "\uD83C\uDFC5", Shield: "\uD83D\uDEE1", ClipboardList: "\uD83D\uDCCB", Lock: "\uD83D\uDD12", Printer: "\uD83D\uDDA8", MessageCircle: "\uD83D\uDCAC",
-  Play: "\u25B6", Pause: "\u23F8", StopCircle: "\u23F9", Whistle: "\uD83D\uDCE3", Yellow: "\uD83D\uDFE8", Red: "\uD83D\uDFE5", Football: "\u26BD", Gloves: "\uD83E\uDDE4"
+  Play: "\u25B6", Pause: "\u23F8", StopCircle: "\u23F9", Whistle: "\uD83D\uDCE3", Yellow: "\uD83D\uDFE8", Red: "\uD83D\uDFE5", Football: "\u26BD", Gloves: "\uD83E\uDDE4", Cloud: "\u2601"
 };
 
 function Icon({ name, size = 16 }) {
@@ -3114,6 +3114,25 @@ function App() {
   const categoriaObj = modalitaDirettore ? { nome: "Tutte le categorie", durata: 70, numPeriodi: 2, periodoMinuti: 35 } : getCategoria(categoriaAttiva);
   const durataPartita = categoriaObj.durata;
 
+  const [fbTestStato, setFbTestStato] = useState("idle"); // 'idle' | 'verifica' | 'ok' | 'errore'
+  const [fbTestErrore, setFbTestErrore] = useState("");
+  const testFirebase = async () => {
+    setFbTestStato("verifica");
+    setFbTestErrore("");
+    if (typeof window.firebaseTestConnessione !== "function") {
+      setFbTestStato("errore");
+      setFbTestErrore("Modulo Firebase non ancora caricato, riprova tra qualche secondo.");
+      return;
+    }
+    const esito = await window.firebaseTestConnessione();
+    if (esito && esito.ok) {
+      setFbTestStato("ok");
+    } else {
+      setFbTestStato("errore");
+      setFbTestErrore((esito && esito.errore) || "Errore sconosciuto.");
+    }
+  };
+
   const [deviceCode] = useState(() => {
     try {
       let dc = localStorage.getItem("gs_device_code");
@@ -4146,6 +4165,29 @@ function App() {
               >
                 <Icon name="X" size={18} />
               </button>
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-title">
+                <Icon name="Cloud" size={16} /> Database condiviso (Firebase) — test
+              </div>
+              <p className="muted">
+                Verifica solo che l'app riesca a parlare con il database cloud. I tuoi dati restano ancora sul
+                telefono come prima: nessuna modifica reale finché non completiamo la migrazione.
+              </p>
+              <button type="button" className="btn ghost" onClick={testFirebase} disabled={fbTestStato === "verifica"}>
+                <Icon name="Cloud" size={15} /> {fbTestStato === "verifica" ? "Verifica in corso..." : "Verifica connessione"}
+              </button>
+              {fbTestStato === "ok" && (
+                <p className="muted" style={{ color: "#2D6A4F", fontWeight: 700, marginTop: 8 }}>
+                  ✅ Connesso correttamente al database condiviso.
+                </p>
+              )}
+              {fbTestStato === "errore" && (
+                <p className="muted" style={{ color: "#C1440E", fontWeight: 700, marginTop: 8 }}>
+                  ❌ Connessione fallita: {fbTestErrore}
+                </p>
+              )}
             </div>
 
             <div className="settings-section">
