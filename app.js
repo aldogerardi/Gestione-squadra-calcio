@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.06";
+const APP_VERSION = "2.07";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -803,6 +803,21 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
   const subentrati = players
     .filter((p) => m.entries[p.id]?.stato === "subentrato")
     .sort((a, b) => a.cognome.localeCompare(b.cognome));
+  const ammoniti = players
+    .filter((p) => (Number(m.entries[p.id]?.cartelliniGialli) || 0) > 0)
+    .map((p) => ({ p, n: Number(m.entries[p.id]?.cartelliniGialli) || 0 }))
+    .sort((a, b) => a.p.cognome.localeCompare(b.p.cognome));
+  const espulsi = players
+    .filter((p) => m.entries[p.id]?.cartellinoRosso)
+    .sort((a, b) => a.cognome.localeCompare(b.cognome));
+  const marcatori = players
+    .filter((p) => (Number(m.entries[p.id]?.golSegnati) || 0) > 0)
+    .map((p) => ({ p, n: Number(m.entries[p.id]?.golSegnati) || 0 }))
+    .sort((a, b) => b.n - a.n || a.p.cognome.localeCompare(b.p.cognome));
+  const portieriGolSubiti = players
+    .filter((p) => (Number(m.entries[p.id]?.golSubitiPortiere) || 0) > 0)
+    .map((p) => ({ p, n: Number(m.entries[p.id]?.golSubitiPortiere) || 0 }))
+    .sort((a, b) => a.p.cognome.localeCompare(b.p.cognome));
   const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
   const noi = nomeSquadra || "Rosa Squadra";
   const avv = m.avversario || "Avversario";
@@ -817,6 +832,22 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
     testo += sostituiti.map((p, i) => `${i + 1}. ${p.cognome} ${p.nome}`).join("\n") || "—";
     testo += `\n\n🔼 SUBENTRATI (${subentrati.length}):\n`;
     testo += subentrati.map((p, i) => `${i + 1}. ${p.cognome} ${p.nome}`).join("\n") || "—";
+    if (marcatori.length > 0) {
+      testo += `\n\n⚽ MARCATORI:\n`;
+      testo += marcatori.map((r) => `${r.p.cognome} ${r.p.nome}${r.n > 1 ? ` (${r.n})` : ""}`).join("\n");
+    }
+    if (ammoniti.length > 0) {
+      testo += `\n\n🟨 AMMONITI:\n`;
+      testo += ammoniti.map((r) => `${r.p.cognome} ${r.p.nome}${r.n > 1 ? ` (${r.n})` : ""}`).join("\n");
+    }
+    if (espulsi.length > 0) {
+      testo += `\n\n🟥 ESPULSI:\n`;
+      testo += espulsi.map((p) => `${p.cognome} ${p.nome}`).join("\n");
+    }
+    if (portieriGolSubiti.length > 0) {
+      testo += `\n\n🧤 GOL SUBITI (portiere):\n`;
+      testo += portieriGolSubiti.map((r) => `${r.p.cognome} ${r.p.nome} — ${r.n} gol`).join("\n");
+    }
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`, "_blank");
   };
 
@@ -884,6 +915,68 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
           ))
         )}
       </div>
+
+      {marcatori.length > 0 && (
+        <div className="distinta-group">
+          <div className="distinta-group-title titolari-title">⚽ Marcatori ({marcatori.length})</div>
+          {marcatori.map((r) => (
+            <div key={r.p.id} className="distinta-row">
+              <div className="distinta-name-block">
+                <div className="distinta-name">
+                  {r.p.cognome} {r.p.nome}
+                  {r.n > 1 ? ` (${r.n} gol)` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {ammoniti.length > 0 && (
+        <div className="distinta-group">
+          <div className="distinta-group-title" style={{ color: "#B5850A" }}>🟨 Ammoniti ({ammoniti.length})</div>
+          {ammoniti.map((r) => (
+            <div key={r.p.id} className="distinta-row">
+              <div className="distinta-name-block">
+                <div className="distinta-name">
+                  {r.p.cognome} {r.p.nome}
+                  {r.n > 1 ? ` (${r.n})` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {espulsi.length > 0 && (
+        <div className="distinta-group">
+          <div className="distinta-group-title esito-s">🟥 Espulsi ({espulsi.length})</div>
+          {espulsi.map((p) => (
+            <div key={p.id} className="distinta-row">
+              <div className="distinta-name-block">
+                <div className="distinta-name">
+                  {p.cognome} {p.nome}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {portieriGolSubiti.length > 0 && (
+        <div className="distinta-group">
+          <div className="distinta-group-title riserve-title">🧤 Gol subiti (portiere)</div>
+          {portieriGolSubiti.map((r) => (
+            <div key={r.p.id} className="distinta-row">
+              <div className="distinta-name-block">
+                <div className="distinta-name">
+                  {r.p.cognome} {r.p.nome} — {r.n} gol
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="sheet-actions">
         <button type="button" className="btn ghost" onClick={onClose}>
