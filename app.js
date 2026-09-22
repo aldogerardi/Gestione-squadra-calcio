@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.08";
+const APP_VERSION = "2.09";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -794,6 +794,15 @@ function TrainingReportModal({ t, players, nomeSquadra, onClose }) {
 }
 
 function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
+  const eventiDi = (p) => {
+    const e = m.entries[p.id] || {};
+    const gialli = Number(e.cartelliniGialli) || 0;
+    const rosso = !!e.cartellinoRosso;
+    const gol = Number(e.golSegnati) || 0;
+    const golSubiti = Number(e.golSubitiPortiere) || 0;
+    return { gialli, rosso, gol, golSubiti };
+  };
+
   const titolari = players
     .filter((p) => m.entries[p.id]?.stato === "titolare" && !m.entries[p.id]?.sostituito)
     .sort((a, b) => a.cognome.localeCompare(b.cognome));
@@ -803,52 +812,50 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
   const subentrati = players
     .filter((p) => m.entries[p.id]?.stato === "subentrato")
     .sort((a, b) => a.cognome.localeCompare(b.cognome));
-  const ammoniti = players
-    .filter((p) => (Number(m.entries[p.id]?.cartelliniGialli) || 0) > 0)
-    .map((p) => ({ p, n: Number(m.entries[p.id]?.cartelliniGialli) || 0 }))
-    .sort((a, b) => a.p.cognome.localeCompare(b.p.cognome));
-  const espulsi = players
-    .filter((p) => m.entries[p.id]?.cartellinoRosso)
-    .sort((a, b) => a.cognome.localeCompare(b.cognome));
-  const marcatori = players
-    .filter((p) => (Number(m.entries[p.id]?.golSegnati) || 0) > 0)
-    .map((p) => ({ p, n: Number(m.entries[p.id]?.golSegnati) || 0 }))
-    .sort((a, b) => b.n - a.n || a.p.cognome.localeCompare(b.p.cognome));
-  const portieriGolSubiti = players
-    .filter((p) => (Number(m.entries[p.id]?.golSubitiPortiere) || 0) > 0)
-    .map((p) => ({ p, n: Number(m.entries[p.id]?.golSubitiPortiere) || 0 }))
-    .sort((a, b) => a.p.cognome.localeCompare(b.p.cognome));
   const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
   const noi = nomeSquadra || "Rosa Squadra";
   const avv = m.avversario || "Avversario";
   const haRisultato = m.golFatti !== "" && m.golFatti !== undefined && m.golSubiti !== "" && m.golSubiti !== undefined;
 
+  const rigaTesto = (p) => {
+    const { gialli, rosso, gol, golSubiti } = eventiDi(p);
+    let riga = `${p.cognome} ${p.nome}`;
+    if (gol > 0) riga += ` ⚽${gol > 1 ? `x${gol}` : ""}`;
+    if (gialli > 0) riga += ` 🟨${gialli > 1 ? `x${gialli}` : ""}`;
+    if (rosso) riga += ` 🟥`;
+    if (golSubiti > 0) riga += ` 🧤${golSubiti} subiti`;
+    return riga;
+  };
+
   const condividiWhatsapp = () => {
     let testo = `⚽ ${noi} vs ${avv} — ${dataStr}\n`;
     if (haRisultato) testo += `Risultato: ${m.golFatti}-${m.golSubiti}\n`;
     testo += `\n✅ TITOLARI (${titolari.length}):\n`;
-    testo += titolari.map((p, i) => `${i + 1}. ${p.cognome} ${p.nome}`).join("\n") || "—";
+    testo += titolari.map((p, i) => `${i + 1}. ${rigaTesto(p)}`).join("\n") || "—";
     testo += `\n\n🔻 SOSTITUITI (${sostituiti.length}):\n`;
-    testo += sostituiti.map((p, i) => `${i + 1}. ${p.cognome} ${p.nome}`).join("\n") || "—";
+    testo += sostituiti.map((p, i) => `${i + 1}. ${rigaTesto(p)}`).join("\n") || "—";
     testo += `\n\n🔼 SUBENTRATI (${subentrati.length}):\n`;
-    testo += subentrati.map((p, i) => `${i + 1}. ${p.cognome} ${p.nome}`).join("\n") || "—";
-    if (marcatori.length > 0) {
-      testo += `\n\n⚽ MARCATORI:\n`;
-      testo += marcatori.map((r) => `${r.p.cognome} ${r.p.nome}${r.n > 1 ? ` (${r.n})` : ""}`).join("\n");
-    }
-    if (ammoniti.length > 0) {
-      testo += `\n\n🟨 AMMONITI:\n`;
-      testo += ammoniti.map((r) => `${r.p.cognome} ${r.p.nome}${r.n > 1 ? ` (${r.n})` : ""}`).join("\n");
-    }
-    if (espulsi.length > 0) {
-      testo += `\n\n🟥 ESPULSI:\n`;
-      testo += espulsi.map((p) => `${p.cognome} ${p.nome}`).join("\n");
-    }
-    if (portieriGolSubiti.length > 0) {
-      testo += `\n\n🧤 GOL SUBITI (portiere):\n`;
-      testo += portieriGolSubiti.map((r) => `${r.p.cognome} ${r.p.nome} — ${r.n} gol`).join("\n");
-    }
+    testo += subentrati.map((p, i) => `${i + 1}. ${rigaTesto(p)}`).join("\n") || "—";
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`, "_blank");
+  };
+
+  const Riga = ({ p }) => {
+    const { gialli, rosso, gol, golSubiti } = eventiDi(p);
+    return (
+      <div className="distinta-row">
+        <div className="distinta-name-block">
+          <div className="distinta-name">
+            {p.cognome} {p.nome}
+          </div>
+        </div>
+        <div className="distinta-badges">
+          {gol > 0 && <span className="distinta-badge">⚽ {gol > 1 ? `x${gol}` : ""}</span>}
+          {gialli > 0 && <span className="distinta-badge">🟨 {gialli > 1 ? `x${gialli}` : ""}</span>}
+          {rosso && <span className="distinta-badge">🟥</span>}
+          {golSubiti > 0 && <span className="distinta-badge">🧤 {golSubiti}</span>}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -870,15 +877,7 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
         {titolari.length === 0 ? (
           <p className="muted">Nessuno.</p>
         ) : (
-          titolari.map((p) => (
-            <div key={p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {p.cognome} {p.nome}
-                </div>
-              </div>
-            </div>
-          ))
+          titolari.map((p) => <Riga key={p.id} p={p} />)
         )}
       </div>
 
@@ -887,15 +886,7 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
         {sostituiti.length === 0 ? (
           <p className="muted">Nessuno.</p>
         ) : (
-          sostituiti.map((p) => (
-            <div key={p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {p.cognome} {p.nome}
-                </div>
-              </div>
-            </div>
-          ))
+          sostituiti.map((p) => <Riga key={p.id} p={p} />)
         )}
       </div>
 
@@ -904,79 +895,9 @@ function MatchQuickReportModal({ m, players, nomeSquadra, onClose }) {
         {subentrati.length === 0 ? (
           <p className="muted">Nessuno.</p>
         ) : (
-          subentrati.map((p) => (
-            <div key={p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {p.cognome} {p.nome}
-                </div>
-              </div>
-            </div>
-          ))
+          subentrati.map((p) => <Riga key={p.id} p={p} />)
         )}
       </div>
-
-      {marcatori.length > 0 && (
-        <div className="distinta-group">
-          <div className="distinta-group-title titolari-title">⚽ Marcatori ({marcatori.length})</div>
-          {marcatori.map((r) => (
-            <div key={r.p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {r.p.cognome} {r.p.nome}
-                  {r.n > 1 ? ` (${r.n} gol)` : ""}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {ammoniti.length > 0 && (
-        <div className="distinta-group">
-          <div className="distinta-group-title" style={{ color: "#B5850A" }}>🟨 Ammoniti ({ammoniti.length})</div>
-          {ammoniti.map((r) => (
-            <div key={r.p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {r.p.cognome} {r.p.nome}
-                  {r.n > 1 ? ` (${r.n})` : ""}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {espulsi.length > 0 && (
-        <div className="distinta-group">
-          <div className="distinta-group-title esito-s">🟥 Espulsi ({espulsi.length})</div>
-          {espulsi.map((p) => (
-            <div key={p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {p.cognome} {p.nome}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {portieriGolSubiti.length > 0 && (
-        <div className="distinta-group">
-          <div className="distinta-group-title riserve-title">🧤 Gol subiti (portiere)</div>
-          {portieriGolSubiti.map((r) => (
-            <div key={r.p.id} className="distinta-row">
-              <div className="distinta-name-block">
-                <div className="distinta-name">
-                  {r.p.cognome} {r.p.nome} — {r.n} gol
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="sheet-actions">
         <button type="button" className="btn ghost" onClick={onClose}>
@@ -5342,6 +5263,16 @@ const css = `
     padding: 7px 2px;
     border-bottom: 1px solid var(--line);
     font-size: 13.5px;
+  }
+  .distinta-name-block { flex: 1; min-width: 0; }
+  .distinta-badges { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .distinta-badge {
+    font-size: 12px;
+    font-weight: 700;
+    background: var(--chalk);
+    border-radius: 6px;
+    padding: 2px 6px;
+    white-space: nowrap;
   }
   .distinta-num {
     width: 24px;

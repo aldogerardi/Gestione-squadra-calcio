@@ -1,4 +1,4 @@
-const CACHE_NAME = "rosa-squadra-v2.08";
+const CACHE_NAME = "rosa-squadra-v2.09";
 
 const APP_SHELL = [
   "./",
