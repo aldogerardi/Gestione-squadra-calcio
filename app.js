@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.09";
+const APP_VERSION = "2.10";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -2174,6 +2174,114 @@ function TeamReportTab({ matches, players, nomeSquadra, vistaTutteCategorie }) {
 }
 
 
+function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie }) {
+  const [mese, setMese] = useState("tutti");
+  const [weekend, setWeekend] = useState("tutti");
+
+  const satOf = (dataStr) => {
+    const d = new Date(dataStr);
+    const day = d.getDay(); // 0=Dom ... 6=Sab
+    const diff = (day - 6 + 7) % 7;
+    const sat = new Date(d);
+    sat.setDate(d.getDate() - diff);
+    return sat.toISOString().slice(0, 10);
+  };
+  const meseOf = (dataStr) => dataStr.slice(0, 7); // "YYYY-MM"
+
+  const mesi = useMemo(() => {
+    const set = new Set(matches.map((m) => meseOf(m.data)));
+    return [...set].sort().reverse();
+  }, [matches]);
+
+  const weekends = useMemo(() => {
+    const set = new Set(matches.map((m) => satOf(m.data)));
+    return [...set].sort().reverse();
+  }, [matches]);
+
+  const etichettaMese = (chiave) => {
+    const [y, mo] = chiave.split("-");
+    const d = new Date(Number(y), Number(mo) - 1, 1);
+    const nome = d.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+    return nome.charAt(0).toUpperCase() + nome.slice(1);
+  };
+  const etichettaWeekend = (satIso) => {
+    const sat = new Date(satIso);
+    const sun = new Date(sat);
+    sun.setDate(sat.getDate() + 1);
+    const fmt = (d) => d.toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+    return `${fmt(sat)} - ${fmt(sun)}`;
+  };
+
+  const filtrate = matches
+    .filter((m) => (mese === "tutti" ? true : meseOf(m.data) === mese))
+    .filter((m) => (weekend === "tutti" ? true : satOf(m.data) === weekend))
+    .sort((a, b) => b.data.localeCompare(a.data));
+
+  const riepilogo = calcolaEsito(filtrate);
+
+  return (
+    <div className="report">
+      <div className="risultati-filtri">
+        <select value={mese} onChange={(e) => setMese(e.target.value)}>
+          <option value="tutti">📅 Tutti i mesi</option>
+          {mesi.map((mm) => (
+            <option key={mm} value={mm}>
+              {etichettaMese(mm)}
+            </option>
+          ))}
+        </select>
+        <select value={weekend} onChange={(e) => setWeekend(e.target.value)}>
+          <option value="tutti">🗓️ Tutti i weekend</option>
+          {weekends.map((w) => (
+            <option key={w} value={w}>
+              {etichettaWeekend(w)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {filtrate.length === 0 ? (
+        <div className="empty">
+          <Icon name="Trophy" size={28} />
+          <p>Nessuna partita con questi filtri.</p>
+        </div>
+      ) : (
+        <>
+          <p className="muted" style={{ marginBottom: 10 }}>
+            {filtrate.length} partite · {riepilogo.v}V {riepilogo.n}N {riepilogo.p}P · {riepilogo.gf}-{riepilogo.gs}
+          </p>
+          <div className="risultati-lista">
+            {filtrate.map((m) => {
+              const haRisultato = m.golFatti !== "" && m.golFatti !== undefined && m.golSubiti !== "" && m.golSubiti !== undefined;
+              const gf = Number(m.golFatti),
+                gs = Number(m.golSubiti);
+              const esito = !haRisultato ? null : gf > gs ? "v" : gf < gs ? "p" : "n";
+              const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
+              return (
+                <div key={m.id} className="risultati-row">
+                  <div className={`risultati-esito risultati-esito-${esito || "x"}`}>
+                    {esito ? esito.toUpperCase() : "-"}
+                  </div>
+                  <div className="risultati-info">
+                    <div className="risultati-avv">
+                      {m.casa !== false ? "🏠" : "🚌"} vs {m.avversario || "Avversario"}
+                    </div>
+                    <div className="risultati-meta">
+                      {dataStr} · {m.tipo === "amichevole" ? "Amichevole" : m.tipo === "coppa" ? "Coppa" : "Campionato"}
+                      {vistaTutteCategorie ? ` · ${getCategoria(m.categoria || "giovanissimi15").nome}` : ""}
+                    </div>
+                  </div>
+                  <div className="risultati-score">{haRisultato ? `${m.golFatti}-${m.golSubiti}` : "—"}</div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ReportTab({ players, trainings, matches, nomeSquadra, logoSquadra }) {
   const [openStat, setOpenStat] = useState(null); // 'gol' | 'gialli' | 'rossi' | null
   const [selectedPlayerId, setSelectedPlayerId] = useState("");
@@ -3205,7 +3313,7 @@ function App() {
 
   const cambiaTabSwipe = (direzione) => {
     const ids = isDirettore
-      ? ["anagrafica", "report", "report-squadra"]
+      ? ["anagrafica", "risultati", "report", "report-squadra"]
       : ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
     const i = ids.indexOf(tab);
     if (i === -1) return;
@@ -4212,13 +4320,14 @@ function App() {
   ];
   const TABS_DIRETTORE = [
     { id: "anagrafica", label: "Rosa", icon: <Icon name="Users" size={16} /> },
+    { id: "risultati", label: "Risultati", icon: <Icon name="Trophy" size={16} /> },
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
   ];
   const TABS = isDirettore ? TABS_DIRETTORE : TABS_ALLENATORE;
 
   useEffect(() => {
-    const idsDirettore = ["anagrafica", "report", "report-squadra"];
+    const idsDirettore = ["anagrafica", "risultati", "report", "report-squadra"];
     if (isDirettore && !idsDirettore.includes(tab)) setTab("anagrafica");
   }, [isDirettore]);
 
@@ -4605,6 +4714,21 @@ function App() {
             </div>
             {unlocked ? (
               <ReportTab players={giocatoriCategoria} trainings={sortedTrainings} matches={sortedMatches} nomeSquadra={nomeSquadra} logoSquadra={logoSquadra} />
+            ) : (
+              <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
+            )}
+          </>
+        )}
+
+        {tab === "risultati" && (
+          <>
+            <div className="toolbar">
+              <div className="toolbar-title">
+                <Icon name="Trophy" size={16} /> Risultati
+              </div>
+            </div>
+            {unlocked ? (
+              <RisultatiTab matches={sortedMatches} nomeSquadra={nomeSquadra} vistaTutteCategorie={vistaTutteCategorie} />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
@@ -5518,6 +5642,47 @@ const css = `
   .report-val { text-align: center; font-variant-numeric: tabular-nums; }
   .stat-chips { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .esito-title { font-size: 13px; font-weight: 700; color: var(--pitch-dark); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.02em; }
+  .risultati-filtri { display: flex; gap: 8px; margin-bottom: 12px; }
+  .risultati-filtri select {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .risultati-lista { display: flex; flex-direction: column; gap: 8px; }
+  .risultati-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .risultati-esito {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 13px;
+    color: white;
+  }
+  .risultati-esito-v { background: var(--pitch-dark); }
+  .risultati-esito-n { background: #B5850A; }
+  .risultati-esito-p { background: var(--danger); }
+  .risultati-esito-x { background: var(--ink-soft); }
+  .risultati-info { flex: 1; min-width: 0; }
+  .risultati-avv { font-weight: 700; font-size: 13.5px; }
+  .risultati-meta { font-size: 12px; color: var(--ink-soft); margin-top: 1px; }
+  .risultati-score { font-weight: 700; font-size: 15px; color: var(--pitch-dark); flex-shrink: 0; }
   .cartellini-table { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .cartellini-row {
     display: flex;
