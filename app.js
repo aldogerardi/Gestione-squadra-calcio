@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.10";
+const APP_VERSION = "2.62";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -251,6 +251,12 @@ const CATEGORIE = [
 
 function getCategoria(id) {
   return CATEGORIE.find((c) => c.id === id) || CATEGORIE[5]; // default Giovanissimi U15
+}
+
+function abbreviaCategoria(id) {
+  const nome = getCategoria(id).nome;
+  const m = nome.match(/Under (\d+)/);
+  return m ? `U${m[1]}` : nome.slice(0, 4);
 }
 
 const emptyPlayer = {
@@ -2174,7 +2180,7 @@ function TeamReportTab({ matches, players, nomeSquadra, vistaTutteCategorie }) {
 }
 
 
-function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie }) {
+function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie, categoriaAttiva, setCategoriaAttiva }) {
   const [mese, setMese] = useState("tutti");
   const [weekend, setWeekend] = useState("tutti");
 
@@ -2222,6 +2228,14 @@ function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie }) {
   return (
     <div className="report">
       <div className="risultati-filtri">
+        <select value={categoriaAttiva} onChange={(e) => setCategoriaAttiva(e.target.value)}>
+          <option value="tutte">🎯 Tutte le categorie</option>
+          {CATEGORIE.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome}
+            </option>
+          ))}
+        </select>
         <select value={mese} onChange={(e) => setMese(e.target.value)}>
           <option value="tutti">📅 Tutti i mesi</option>
           {mesi.map((mm) => (
@@ -2259,6 +2273,9 @@ function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie }) {
               const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "short" });
               return (
                 <div key={m.id} className="risultati-row">
+                  {vistaTutteCategorie && (
+                    <div className="risultati-cat">{abbreviaCategoria(m.categoria || "giovanissimi15")}</div>
+                  )}
                   <div className={`risultati-esito risultati-esito-${esito || "x"}`}>
                     {esito ? esito.toUpperCase() : "-"}
                   </div>
@@ -2268,7 +2285,6 @@ function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie }) {
                     </div>
                     <div className="risultati-meta">
                       {dataStr} · {m.tipo === "amichevole" ? "Amichevole" : m.tipo === "coppa" ? "Coppa" : "Campionato"}
-                      {vistaTutteCategorie ? ` · ${getCategoria(m.categoria || "giovanissimi15").nome}` : ""}
                     </div>
                   </div>
                   <div className="risultati-score">{haRisultato ? `${m.golFatti}-${m.golSubiti}` : "—"}</div>
@@ -4728,7 +4744,13 @@ function App() {
               </div>
             </div>
             {unlocked ? (
-              <RisultatiTab matches={sortedMatches} nomeSquadra={nomeSquadra} vistaTutteCategorie={vistaTutteCategorie} />
+              <RisultatiTab
+                matches={sortedMatches}
+                nomeSquadra={nomeSquadra}
+                vistaTutteCategorie={vistaTutteCategorie}
+                categoriaAttiva={categoriaAttiva}
+                setCategoriaAttiva={setCategoriaAttiva}
+              />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
@@ -5642,10 +5664,11 @@ const css = `
   .report-val { text-align: center; font-variant-numeric: tabular-nums; }
   .stat-chips { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .esito-title { font-size: 13px; font-weight: 700; color: var(--pitch-dark); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.02em; }
-  .risultati-filtri { display: flex; gap: 8px; margin-bottom: 12px; }
+  .risultati-filtri { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .risultati-filtri select:first-child { flex-basis: 100%; }
   .risultati-filtri select {
     flex: 1;
-    min-width: 0;
+    min-width: 120px;
     background: var(--card);
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -5662,6 +5685,14 @@ const css = `
     border: 1px solid var(--line);
     border-radius: 10px;
     padding: 10px 12px;
+  }
+  .risultati-cat {
+    width: 40px;
+    flex-shrink: 0;
+    text-align: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--pitch-dark);
   }
   .risultati-esito {
     width: 30px;
