@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.03";
+const APP_VERSION = "2.06";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1986,15 +1986,76 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
   );
 }
 
-function TeamReportTab({ matches, nomeSquadra }) {
-  const campionato = matches.filter((m) => (m.tipo || "campionato") === "campionato");
-  const conRisultato = campionato.filter(
+function calcolaEsito(matches) {
+  const conRisultato = matches.filter(
     (m) => m.golFatti !== "" && m.golFatti !== undefined && m.golSubiti !== "" && m.golSubiti !== undefined
   );
-  const vinte = conRisultato.filter((m) => Number(m.golFatti) > Number(m.golSubiti)).length;
-  const perse = conRisultato.filter((m) => Number(m.golFatti) < Number(m.golSubiti)).length;
-  const pareggiate = conRisultato.filter((m) => Number(m.golFatti) === Number(m.golSubiti)).length;
-  const punteggio = vinte * 3 + pareggiate * 1;
+  const v = conRisultato.filter((m) => Number(m.golFatti) > Number(m.golSubiti)).length;
+  const p = conRisultato.filter((m) => Number(m.golFatti) < Number(m.golSubiti)).length;
+  const n = conRisultato.filter((m) => Number(m.golFatti) === Number(m.golSubiti)).length;
+  const gf = conRisultato.reduce((s, m) => s + (Number(m.golFatti) || 0), 0);
+  const gs = conRisultato.reduce((s, m) => s + (Number(m.golSubiti) || 0), 0);
+  return { pg: conRisultato.length, v, n, p, gf, gs, dr: gf - gs };
+}
+
+function RigaEsito({ etichetta, e, evidenzia }) {
+  return (
+    <div className={`esito-row${evidenzia ? " esito-row-tot" : ""}`}>
+      <span className="esito-label">{etichetta}</span>
+      <span className="esito-val">{e.pg}</span>
+      <span className="esito-val esito-v">{e.v}</span>
+      <span className="esito-val esito-n">{e.n}</span>
+      <span className="esito-val esito-p">{e.p}</span>
+      <span className="esito-val">{e.gf}</span>
+      <span className="esito-val">{e.gs}</span>
+      <span className="esito-val" style={{ fontWeight: 700 }}>{e.dr > 0 ? `+${e.dr}` : e.dr}</span>
+    </div>
+  );
+}
+
+function TeamReportTab({ matches, players, nomeSquadra, vistaTutteCategorie }) {
+  const campionatoMatches = matches.filter((m) => (m.tipo || "campionato") === "campionato");
+  const coppaMatches = matches.filter((m) => m.tipo === "coppa");
+  const amichevoleMatches = matches.filter((m) => m.tipo === "amichevole");
+
+  const totale = calcolaEsito(matches);
+  const campionato = calcolaEsito(campionatoMatches);
+  const coppa = calcolaEsito(coppaMatches);
+  const amichevole = calcolaEsito(amichevoleMatches);
+  const punteggio = campionato.v * 3 + campionato.n * 1;
+
+  const perCategoria = useMemo(() => {
+    if (!vistaTutteCategorie) return [];
+    const gruppi = {};
+    matches.forEach((m) => {
+      const cat = m.categoria || "giovanissimi15";
+      (gruppi[cat] = gruppi[cat] || []).push(m);
+    });
+    return Object.entries(gruppi)
+      .map(([cat, ms]) => ({ cat, nome: getCategoria(cat).nome, esito: calcolaEsito(ms) }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [matches, vistaTutteCategorie]);
+
+  const disciplina = useMemo(() => {
+    const byId = {};
+    (players || []).forEach((p) => {
+      byId[p.id] = { id: p.id, nome: `${p.cognome} ${p.nome}`, gol: 0, gialli: 0, rossi: 0 };
+    });
+    matches.forEach((m) => {
+      Object.entries(m.entries || {}).forEach(([pid, e]) => {
+        if (!byId[pid]) return;
+        byId[pid].gol += Number(e.golSegnati) || 0;
+        byId[pid].gialli += Number(e.cartelliniGialli) || 0;
+        if (e.cartellinoRosso) byId[pid].rossi += 1;
+      });
+    });
+    const tutti = Object.values(byId);
+    const marcatori = tutti.filter((r) => r.gol > 0).sort((a, b) => b.gol - a.gol);
+    const cartellini = tutti
+      .filter((r) => r.gialli > 0 || r.rossi > 0)
+      .sort((a, b) => b.rossi - a.rossi || b.gialli - a.gialli);
+    return { marcatori, cartellini };
+  }, [matches, players]);
 
   if (matches.length === 0) {
     return (
@@ -2007,27 +2068,93 @@ function TeamReportTab({ matches, nomeSquadra }) {
 
   return (
     <div className="report">
-      <p className="muted" style={{ marginBottom: 12 }}>
-        Statistiche sul solo campionato ({conRisultato.length} partite con risultato, amichevoli escluse).
-      </p>
       <div className="stat-chips">
         <div className="stat-chip static">
           <span className="stat-chip-num">{punteggio}</span>
           <span className="stat-chip-label">🏆 Punteggio campionato</span>
         </div>
         <div className="stat-chip static">
-          <span className="stat-chip-num">{vinte}</span>
-          <span className="stat-chip-label">✅ Partite vinte</span>
+          <span className="stat-chip-num">{totale.v}</span>
+          <span className="stat-chip-label">✅ Partite vinte (totale)</span>
         </div>
         <div className="stat-chip static">
-          <span className="stat-chip-num">{perse}</span>
-          <span className="stat-chip-label">❌ Partite perse</span>
+          <span className="stat-chip-num">{totale.p}</span>
+          <span className="stat-chip-label">❌ Partite perse (totale)</span>
         </div>
         <div className="stat-chip static">
-          <span className="stat-chip-num">{pareggiate}</span>
-          <span className="stat-chip-label">➖ Partite pareggiate</span>
+          <span className="stat-chip-num">{totale.n}</span>
+          <span className="stat-chip-label">➖ Partite pareggiate (totale)</span>
         </div>
       </div>
+
+      <div className="esito-title">Risultati per competizione</div>
+      <div className="esito-table">
+        <div className="esito-row esito-head">
+          <span className="esito-label"></span>
+          <span className="esito-val">PG</span>
+          <span className="esito-val">V</span>
+          <span className="esito-val">N</span>
+          <span className="esito-val">P</span>
+          <span className="esito-val">GF</span>
+          <span className="esito-val">GS</span>
+          <span className="esito-val">DR</span>
+        </div>
+        <RigaEsito etichetta="🏆 Campionato" e={campionato} />
+        <RigaEsito etichetta="🥇 Coppa" e={coppa} />
+        <RigaEsito etichetta="🤝 Amichevole" e={amichevole} />
+        <RigaEsito etichetta="Totale" e={totale} evidenzia />
+      </div>
+
+      {vistaTutteCategorie && perCategoria.length > 0 && (
+        <>
+          <div className="esito-title" style={{ marginTop: 18 }}>Confronto tra categorie</div>
+          <div className="esito-table">
+            <div className="esito-row esito-head">
+              <span className="esito-label"></span>
+              <span className="esito-val">PG</span>
+              <span className="esito-val">V</span>
+              <span className="esito-val">N</span>
+              <span className="esito-val">P</span>
+              <span className="esito-val">GF</span>
+              <span className="esito-val">GS</span>
+              <span className="esito-val">DR</span>
+            </div>
+            {perCategoria.map((r) => (
+              <RigaEsito key={r.cat} etichetta={r.nome} e={r.esito} />
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="esito-title" style={{ marginTop: 18 }}>⚽ Marcatori</div>
+      {disciplina.marcatori.length === 0 ? (
+        <p className="muted">Nessun gol registrato.</p>
+      ) : (
+        <div className="cartellini-table">
+          {disciplina.marcatori.map((r) => (
+            <div className="cartellini-row" key={r.id}>
+              <span className="cartellini-nome">{r.nome}</span>
+              <span className="cartellini-num">{r.gol} ⚽</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="esito-title" style={{ marginTop: 18 }}>🟨🟥 Cartellini</div>
+      {disciplina.cartellini.length === 0 ? (
+        <p className="muted">Nessun cartellino registrato.</p>
+      ) : (
+        <div className="cartellini-table">
+          {disciplina.cartellini.map((r) => (
+            <div className="cartellini-row" key={r.id}>
+              <span className="cartellini-nome">{r.nome}</span>
+              <span className="cartellini-num">
+                {r.gialli > 0 && `🟨 ${r.gialli}`} {r.rossi > 0 && `🟥 ${r.rossi}`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2990,6 +3117,16 @@ function PlayerCard({ p, onEdit, onDelete, readOnly }) {
               <Icon name="Phone" size={12} /> {p.cellulare}
             </span>
           )}
+          {p.cellulareMamma && (
+            <span className="chip">
+              <Icon name="Phone" size={12} /> 👩 {p.cellulareMamma}
+            </span>
+          )}
+          {p.cellularePapa && (
+            <span className="chip">
+              <Icon name="Phone" size={12} /> 👨 {p.cellularePapa}
+            </span>
+          )}
           {p.tessera && (
             <span className="chip">
               <Icon name="Hash" size={12} /> {p.tessera}
@@ -3053,7 +3190,9 @@ function App() {
   const touchRef = useRef({ x: 0, y: 0, ignora: false });
 
   const cambiaTabSwipe = (direzione) => {
-    const ids = ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
+    const ids = isDirettore
+      ? ["anagrafica", "report", "report-squadra"]
+      : ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
     const i = ids.indexOf(tab);
     if (i === -1) return;
     const next = direzione === "left" ? i + 1 : i - 1;
@@ -3221,8 +3360,21 @@ function App() {
       localStorage.setItem("gs_categoria_attiva", categoriaAttiva);
     } catch (e) {}
   }, [categoriaAttiva]);
-  const modalitaDirettore = categoriaAttiva === "tutte";
-  const categoriaObj = modalitaDirettore ? { nome: "Tutte le categorie", durata: 70, numPeriodi: 2, periodoMinuti: 35 } : getCategoria(categoriaAttiva);
+  const [isDirettore, setIsDirettore] = useState(() => {
+    try {
+      return localStorage.getItem("gs_is_direttore") === "true";
+    } catch (e) {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("gs_is_direttore", isDirettore ? "true" : "false");
+    } catch (e) {}
+  }, [isDirettore]);
+  const modalitaDirettore = isDirettore;
+  const vistaTutteCategorie = categoriaAttiva === "tutte";
+  const categoriaObj = vistaTutteCategorie ? { nome: "Tutte le categorie", durata: 70, numPeriodi: 2, periodoMinuti: 35 } : getCategoria(categoriaAttiva);
   const durataPartita = categoriaObj.durata;
 
   const [fbTestStato, setFbTestStato] = useState("idle"); // 'idle' | 'verifica' | 'ok' | 'errore'
@@ -3507,7 +3659,7 @@ function App() {
   const [ordinamento, setOrdinamento] = useState("alfabetico");
 
   const giocatoriCategoria = useMemo(
-    () => (modalitaDirettore ? players : players.filter((p) => (p.categoria || "giovanissimi15") === categoriaAttiva)),
+    () => (categoriaAttiva === "tutte" ? players : players.filter((p) => (p.categoria || "giovanissimi15") === categoriaAttiva)),
     [players, categoriaAttiva, modalitaDirettore]
   );
 
@@ -3559,7 +3711,7 @@ function App() {
   const sortedTrainings = useMemo(
     () =>
       trainings
-        .filter((t) => modalitaDirettore || (t.categoria || "giovanissimi15") === categoriaAttiva)
+        .filter((t) => categoriaAttiva === "tutte" || (t.categoria || "giovanissimi15") === categoriaAttiva)
         .sort((a, b) => b.data.localeCompare(a.data)),
     [trainings, categoriaAttiva, modalitaDirettore]
   );
@@ -3592,7 +3744,7 @@ function App() {
   const sortedMatches = useMemo(
     () =>
       matches
-        .filter((m) => modalitaDirettore || (m.categoria || "giovanissimi15") === categoriaAttiva)
+        .filter((m) => categoriaAttiva === "tutte" || (m.categoria || "giovanissimi15") === categoriaAttiva)
         .sort((a, b) => b.data.localeCompare(a.data)),
     [matches, categoriaAttiva, modalitaDirettore]
   );
@@ -3638,7 +3790,7 @@ function App() {
   const sortedFriendlies = useMemo(() => {
     const trainingCatById = Object.fromEntries(trainings.map((t) => [t.id, t.categoria || "giovanissimi15"]));
     return friendlies
-      .filter((f) => modalitaDirettore || (trainingCatById[f.trainingId] || "giovanissimi15") === categoriaAttiva)
+      .filter((f) => categoriaAttiva === "tutte" || (trainingCatById[f.trainingId] || "giovanissimi15") === categoriaAttiva)
       .sort((a, b) => b.data.localeCompare(a.data));
   }, [friendlies, trainings, categoriaAttiva, modalitaDirettore]);
 
@@ -4022,7 +4174,7 @@ function App() {
     setImportMsg("Reset completato: risultati azzerati, calendario e anagrafica mantenuti.");
   };
 
-  const TABS = [
+  const TABS_ALLENATORE = [
     { id: "anagrafica", label: "Anagrafica", icon: <Icon name="Users" size={16} /> },
     { id: "allenamenti", label: "Allenamenti", icon: <Icon name="Dumbbell" size={16} /> },
     { id: "partite", label: "Partite", icon: <Icon name="Trophy" size={16} /> },
@@ -4031,6 +4183,18 @@ function App() {
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
   ];
+  const TABS_DIRETTORE = [
+    { id: "anagrafica", label: "Rosa", icon: <Icon name="Users" size={16} /> },
+    { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
+    { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
+  ];
+  const TABS = isDirettore ? TABS_DIRETTORE : TABS_ALLENATORE;
+
+  useEffect(() => {
+    const idsDirettore = ["anagrafica", "report", "report-squadra"];
+    if (isDirettore && !idsDirettore.includes(tab)) setTab("anagrafica");
+  }, [isDirettore]);
+
 
   if (accessoOk !== true) {
     return (
@@ -4122,6 +4286,19 @@ function App() {
       <main className="content" onTouchStart={onContentTouchStart} onTouchEnd={onContentTouchEnd}>
         {tab === "anagrafica" && (
           <>
+            {isDirettore && (
+              <div className="direttore-filtro-cat">
+                <Icon name="Clock" size={14} />
+                <select value={categoriaAttiva} onChange={(e) => setCategoriaAttiva(e.target.value)}>
+                  <option value="tutte">🎯 Tutte le categorie</option>
+                  {CATEGORIE.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="toolbar">
               <div className="search">
                 <Icon name="Search" size={16} />
@@ -4415,7 +4592,7 @@ function App() {
               </div>
             </div>
             {unlocked ? (
-              <TeamReportTab matches={sortedMatches} nomeSquadra={nomeSquadra} />
+              <TeamReportTab matches={sortedMatches} players={giocatoriCategoria} nomeSquadra={nomeSquadra} vistaTutteCategorie={vistaTutteCategorie} />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
@@ -4683,22 +4860,25 @@ function App() {
                       {c.nome} — {c.durata}' ({c.numPeriodi}x{c.periodoMinuti}')
                     </option>
                   ))}
-                  <option value="tutte">🎯 Tutte le categorie (Direttore Sportivo)</option>
+                  <option value="tutte">🎯 Tutte le categorie</option>
                 </select>
               </label>
-              {modalitaDirettore ? (
-                <p className="muted">
-                  <strong>Modalità Direttore Sportivo attiva</strong>: vedi anagrafica, allenamenti, partite e report di{" "}
-                  <strong>tutte</strong> le categorie insieme, in sola lettura — non puoi creare, modificare o
-                  eliminare nulla. Soluzione provvisoria in attesa del database condiviso: funziona solo con i dati già
-                  presenti su questo dispositivo (usa "Importa da un altro allenatore" per portarli qui).
-                </p>
-              ) : (
-                <p className="muted">
-                  Determina durata partita e numero di tempi (usata per Partita Live e calcolo minuti giocati), e filtra
-                  anagrafica/allenamenti/partite mostrando solo quelli di questa categoria.
-                </p>
-              )}
+              <p className="muted">
+                Determina durata partita e numero di tempi, e filtra anagrafica/report mostrando solo quelli di
+                questa categoria ("Tutte" le mostra insieme).
+              </p>
+
+              <label className="direttore-toggle">
+                <input type="checkbox" checked={isDirettore} onChange={(e) => setIsDirettore(e.target.checked)} />
+                <span>
+                  <strong>Sono il Direttore Sportivo</strong>
+                  <br />
+                  <span className="muted">
+                    Interfaccia semplificata (solo Rosa e Report, sola lettura) — indipendente dalla categoria scelta
+                    sopra, che qui puoi comunque cambiare per filtrare i report.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {!modalitaDirettore && (
@@ -5300,6 +5480,37 @@ const css = `
   .report-ruolo { font-size: 11px; font-weight: 400; color: var(--ink-soft); }
   .report-val { text-align: center; font-variant-numeric: tabular-nums; }
   .stat-chips { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .esito-title { font-size: 13px; font-weight: 700; color: var(--pitch-dark); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.02em; }
+  .cartellini-table { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .cartellini-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 12px;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+  }
+  .cartellini-row:first-child { border-top: none; }
+  .cartellini-nome { font-weight: 600; }
+  .cartellini-num { font-weight: 700; color: var(--pitch-dark); }
+  .esito-table { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .esito-row {
+    display: grid;
+    grid-template-columns: 1fr repeat(7, 34px);
+    align-items: center;
+    gap: 2px;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .esito-row:first-child { border-top: none; }
+  .esito-head { background: var(--chalk); font-weight: 700; color: var(--ink-soft); font-size: 11px; }
+  .esito-row-tot { font-weight: 700; background: var(--chalk); }
+  .esito-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .esito-val { text-align: center; }
+  .esito-v { color: var(--pitch-dark); font-weight: 700; }
+  .esito-n { color: #B5850A; font-weight: 700; }
+  .esito-p { color: var(--danger); font-weight: 700; }
   .stat-chip {
     flex: 1 1 100px;
     background: var(--card);
@@ -5693,6 +5904,30 @@ const css = `
     margin-bottom: 6px;
   }
   .settings-section .muted { font-size: 12.5px; margin: 0 0 10px; line-height: 1.4; }
+  .direttore-filtro-cat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--chalk);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+  }
+  .direttore-filtro-cat select { flex: 1; border: none; background: transparent; font-size: 13.5px; font-weight: 600; }
+  .direttore-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 12px;
+    background: var(--chalk);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .direttore-toggle input { margin-top: 3px; width: 18px; height: 18px; flex-shrink: 0; }
+  .direttore-toggle .muted { margin: 4px 0 0; }
   .file-btn {
     display: inline-flex;
     cursor: pointer;
