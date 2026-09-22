@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.07";
+const APP_VERSION = "2.08";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -4109,15 +4109,22 @@ function App() {
         setImportMsg("File di backup non valido.");
         return;
       }
+      if (categoriaAttiva === "tutte") {
+        window.alert(
+          'Seleziona prima, in Impostazioni, la categoria specifica a cui appartiene questo backup (non "Tutte le categorie"), poi riprova a ripristinare.'
+        );
+        return;
+      }
+      const fallbackCategoria = categoriaAttiva;
       const ok = window.confirm(
         `Ripristinare questo backup? I giocatori, allenamenti, partite, partitelle e convocazioni del backup verranno AGGIUNTI ` +
-          `a quelli già condivisi su Firestore (non sostituiscono nulla, essendo ora un database comune a tutti gli allenatori).`
+          `a quelli già condivisi su Firestore (non sostituiscono nulla). I record senza categoria propria verranno taggati come "${getCategoria(fallbackCategoria).nome}".`
       );
       if (!ok) return;
       if (typeof window.fsSaveDoc === "function") {
-        await Promise.all((data.players || []).map((p) => window.fsSaveDoc("giocatori", p.id, p)));
-        await Promise.all((data.trainings || []).map((t) => window.fsSaveDoc("allenamenti", t.id, t)));
-        await Promise.all((data.matches || []).map((m) => window.fsSaveDoc("partite", m.id, m)));
+        await Promise.all((data.players || []).map((p) => window.fsSaveDoc("giocatori", p.id, { ...p, categoria: p.categoria || fallbackCategoria })));
+        await Promise.all((data.trainings || []).map((t) => window.fsSaveDoc("allenamenti", t.id, { ...t, categoria: t.categoria || fallbackCategoria })));
+        await Promise.all((data.matches || []).map((m) => window.fsSaveDoc("partite", m.id, { ...m, categoria: m.categoria || fallbackCategoria })));
         await Promise.all((data.friendlies || []).map((f) => window.fsSaveDoc("partitelle", f.id, f)));
         await Promise.all((data.convocazioni || []).map((c) => window.fsSaveDoc("convocazioni", c.id, c)));
       } else {
@@ -4153,12 +4160,18 @@ function App() {
         setImportMsg("File non valido.");
         return;
       }
-      const fallbackCategoria = CATEGORIE.some((c) => c.id === data.categoriaAttiva) ? data.categoriaAttiva : "giovanissimi15";
+      if (categoriaAttiva === "tutte") {
+        window.alert(
+          'Seleziona prima, in Impostazioni, la categoria specifica a cui appartengono questi dati (non "Tutte le categorie"), poi riprova a importare.'
+        );
+        return;
+      }
+      const fallbackCategoria = categoriaAttiva;
       const nomeOrigine = data.nomeSquadra || "un altro allenatore";
 
       const ok = window.confirm(
         `Importare i dati di "${nomeOrigine}" (${data.players.length} giocatori, ${(data.trainings || []).length} allenamenti, ${(data.matches || []).length} partite)? ` +
-          `Verranno AGGIUNTI a quelli che hai già, senza cancellare nulla. I record senza categoria verranno taggati come "${getCategoria(fallbackCategoria).nome}".`
+          `Verranno AGGIUNTI a quelli che hai già, senza cancellare nulla. I record senza categoria propria verranno taggati come "${getCategoria(fallbackCategoria).nome}".`
       );
       if (!ok) return;
 
