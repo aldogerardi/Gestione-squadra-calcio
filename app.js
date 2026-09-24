@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.62";
+const APP_VERSION = "2.64";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -473,12 +473,12 @@ function TrainingForm({ initial, players, onSave, onCancel }) {
 
   const submit = (e) => {
     e.preventDefault();
-    onSave({ id: initial.id || `t_${Date.now()}`, data, chiuso, entries });
+    onSave({ id: initial.id || `t_${Date.now()}`, data, chiuso, entries, categoria: initial.categoria });
   };
 
   const chiudiAllenamento = () => {
     if (!window.confirm("Chiudere questo allenamento? Non sarà più modificabile (potrai solo eliminarlo e rifarlo).")) return;
-    onSave({ id: initial.id || `t_${Date.now()}`, data, chiuso: true, entries });
+    onSave({ id: initial.id || `t_${Date.now()}`, data, chiuso: true, entries, categoria: initial.categoria });
   };
 
   const sorted = [...players].sort((a, b) => a.cognome.localeCompare(b.cognome));
@@ -1480,7 +1480,7 @@ function MatchForm({ initial, players, durataPartita, onSave, onCancel }) {
 
   const submit = (e) => {
     e.preventDefault();
-    onSave({ id: initial.id || `m_${Date.now()}`, data, avversario, casa, tipo, chiuso, golFatti, golSubiti, entries });
+    onSave({ id: initial.id || `m_${Date.now()}`, data, avversario, casa, tipo, chiuso, golFatti, golSubiti, entries, categoria: initial.categoria, live: initial.live });
   };
 
   const finalizzaEntries = () => {
@@ -1507,6 +1507,8 @@ function MatchForm({ initial, players, durataPartita, onSave, onCancel }) {
       golFatti,
       golSubiti,
       entries: finalizzaEntries(),
+      categoria: initial.categoria,
+      live: initial.live,
     });
   };
 
@@ -3515,6 +3517,11 @@ function App() {
   const categoriaObj = vistaTutteCategorie ? { nome: "Tutte le categorie", durata: 70, numPeriodi: 2, periodoMinuti: 35 } : getCategoria(categoriaAttiva);
   const durataPartita = categoriaObj.durata;
 
+  useEffect(() => {
+    const etichetta = isDirettore ? "Direttore" : vistaTutteCategorie ? "Tutte" : abbreviaCategoria(categoriaAttiva);
+    document.title = `${nomeSquadra || "Rosa Squadra"} · ${etichetta}`;
+  }, [nomeSquadra, categoriaAttiva, isDirettore, vistaTutteCategorie]);
+
   const [fbTestStato, setFbTestStato] = useState("idle"); // 'idle' | 'verifica' | 'ok' | 'errore'
   const [fbTestErrore, setFbTestErrore] = useState("");
   const testFirebase = async () => {
@@ -4410,7 +4417,16 @@ function App() {
             <span className="brand-mark">⚽</span>
           )}
           <div>
-            <div className="brand-title">{nomeSquadra || "Rosa Squadra"}</div>
+            <div className="brand-title-row">
+              <span className="brand-title">{nomeSquadra || "Rosa Squadra"}</span>
+              {isDirettore ? (
+                <span className="brand-cat-badge brand-cat-direttore">👔 Direttore</span>
+              ) : (
+                <span className="brand-cat-badge">
+                  {vistaTutteCategorie ? "🎯 Tutte" : abbreviaCategoria(categoriaAttiva)}
+                </span>
+              )}
+            </div>
             <div className="brand-sub">
               {categoriaObj.nome} · {giocatoriCategoria.length} giocatori{scadutiCount > 0 ? ` · ${scadutiCount} certificati da controllare` : ""}
             </div>
@@ -5296,6 +5312,7 @@ const css = `
     background: white;
     flex-shrink: 0;
   }
+  .brand-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .brand-title {
     font-family: 'Oswald', 'Barlow Condensed', sans-serif;
     font-size: 22px;
@@ -5303,6 +5320,16 @@ const css = `
     text-transform: uppercase;
     font-weight: 600;
   }
+  .brand-cat-badge {
+    background: #E9C46A;
+    color: #1B1B1B;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .brand-cat-direttore { background: #4A7C9B; color: white; }
   .brand-sub { font-size: 12.5px; color: #B7D8C7; margin-top: 2px; }
   .brand-credit { font-size: 10.5px; color: #8FBBA4; margin-top: 1px; font-style: italic; }
 
