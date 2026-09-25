@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.67";
+const APP_VERSION = "2.68";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1116,17 +1116,9 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
       return (e.stato === "titolare" && !e.sostituito) || e.stato === "subentrato";
     })
     .sort((a, b) => {
-      const ea = m.entries[a.id],
-        eb = m.entries[b.id];
-      if (ea.stato !== eb.stato) return ea.stato === "titolare" ? -1 : 1;
-      if (ea.stato === "titolare") {
-        const na = Number(ea.numeroMagliaPartita) || 999,
-          nb = Number(eb.numeroMagliaPartita) || 999;
-        return na !== nb ? na - nb : a.cognome.localeCompare(b.cognome);
-      }
-      const ma = Number(ea.minutoSubentro) || 0,
-        mb = Number(eb.minutoSubentro) || 0;
-      return ma !== mb ? ma - mb : a.cognome.localeCompare(b.cognome);
+      const na = Number(m.entries[a.id]?.numeroMagliaPartita) || 999,
+        nb = Number(m.entries[b.id]?.numeroMagliaPartita) || 999;
+      return na !== nb ? na - nb : a.cognome.localeCompare(b.cognome);
     });
   const inPanchina = players
     .filter((p) => m.entries[p.id]?.stato === "riserva")
@@ -1340,6 +1332,7 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
                 <div className="live-event-list">
                   {(eventoTipo === "gol_subito" ? (portieriInCampo.length ? portieriInCampo : inCampo) : inCampo).map((p) => (
                     <button key={p.id} type="button" className="live-event-player" onClick={() => registraEvento(eventoTipo, p.id)}>
+                      <span className="live-event-num">{m.entries[p.id]?.numeroMagliaPartita || "-"}</span>
                       {p.cognome} {p.nome}
                     </button>
                   ))}
@@ -1354,6 +1347,7 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
                 <div className="live-event-list">
                   {inCampo.map((p) => (
                     <button key={p.id} type="button" className="live-event-player" onClick={() => setSubUscenteId(p.id)}>
+                      <span className="live-event-num">{m.entries[p.id]?.numeroMagliaPartita || "-"}</span>
                       {p.cognome} {p.nome}
                     </button>
                   ))}
@@ -1373,6 +1367,7 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
                       className="live-event-player"
                       onClick={() => registraEvento("sostituzione", subUscenteId, { entranteId: p.id })}
                     >
+                      <span className="live-event-num">{m.entries[p.id]?.numeroMagliaPartita || "-"}</span>
                       {p.cognome} {p.nome}
                     </button>
                   ))}
@@ -6168,6 +6163,23 @@ const css = `
     text-align: left;
     font-size: 14px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .live-event-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 4px;
+    border-radius: 6px;
+    background: var(--pitch-dark);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
   }
 
   .sheet-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
