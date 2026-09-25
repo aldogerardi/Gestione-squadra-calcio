@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.64";
+const APP_VERSION = "2.65";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3985,6 +3985,13 @@ function App() {
 
   const classifica = useMemo(() => calcolaClassifica(giocatoriCategoria, sortedFriendlies), [giocatoriCategoria, sortedFriendlies]);
 
+  const condividiClassificaWhatsapp = () => {
+    const noi = nomeSquadra || "Rosa Squadra";
+    let testo = `🏆 CLASSIFICA PARTITELLA\n${noi}\n\n`;
+    testo += classifica.map((r, i) => `${i + 1}. ${r.nome} (${r.ruolo}) — ${r.punti} pt`).join("\n") || "—";
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`, "_blank");
+  };
+
   const COLONNE_EXCEL = {
     cognome: ["cognome"],
     nome: ["nome"],
@@ -4642,7 +4649,17 @@ function App() {
               <>
                 <div className="classifica-box">
                   <div className="classifica-title">
-                    <Icon name="Medal" size={15} /> Classifica stagionale
+                    <span className="classifica-title-label">
+                      <Icon name="Medal" size={15} /> Classifica stagionale
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={condividiClassificaWhatsapp}
+                      aria-label="Condividi classifica su WhatsApp"
+                    >
+                      <WhatsAppIcon size={19} />
+                    </button>
                   </div>
                   <div className="report-table">
                     {classifica.map((r, i) => (
@@ -6245,12 +6262,13 @@ const css = `
 
   .classifica-box { margin-bottom: 18px; }
   .classifica-title {
-    display: flex; align-items: center; gap: 6px;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
     font-weight: 700;
     font-size: 13.5px;
     margin-bottom: 8px;
     color: var(--pitch-dark);
   }
+  .classifica-title-label { display: flex; align-items: center; gap: 6px; }
   .classifica-row { grid-template-columns: 26px 1fr 50px; }
   .classifica-pos { text-align: center; font-weight: 700; color: var(--ink-soft); font-size: 12px; }
   .classifica-punti { text-align: right; font-weight: 700; color: var(--pitch-dark); font-size: 13px; }
