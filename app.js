@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.69";
+const APP_VERSION = "2.70";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1071,31 +1071,6 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
     onUpdateMatch(m.id, (x) => ({ ...x, live: updater(normalizzaLive(x.live, numPeriodi)) }));
   };
 
-  const updateEntry = (playerId, patch) => {
-    onUpdateMatch(m.id, (x) => {
-      const prevEntry = x.entries[playerId] || emptyMatchEntry();
-      return { ...x, entries: { ...x.entries, [playerId]: { ...prevEntry, ...(typeof patch === "function" ? patch(prevEntry) : patch) } } };
-    });
-  };
-
-  // Applica più modifiche a più giocatori in un'unica scrittura, evitando che due
-  // updateEntry ravvicinati (es. sostituzione: chi esce + chi entra) si sovrascrivano
-  // a vicenda perché basati sullo stesso stato non ancora aggiornato.
-  const updateEntries = (patches) => {
-    onUpdateMatch(m.id, (x) => {
-      const nuoveEntries = { ...x.entries };
-      Object.entries(patches).forEach(([playerId, patch]) => {
-        const prevEntry = nuoveEntries[playerId] || x.entries[playerId] || emptyMatchEntry();
-        nuoveEntries[playerId] = { ...prevEntry, ...(typeof patch === "function" ? patch(prevEntry) : patch) };
-      });
-      return { ...x, entries: nuoveEntries };
-    });
-  };
-
-  const setScore = (campo, delta) => {
-    onUpdateMatch(m.id, (x) => ({ ...x, [campo]: String(Math.max(0, (Number(x[campo]) || 0) + delta)) }));
-  };
-
   const avviaPeriodo = () =>
     updateLive((l) => {
       if (l.fase === "idle") return { ...l, periodo: 1, fase: "running", runningSince: Date.now() };
@@ -1113,8 +1088,17 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
     });
   const riprendi = () => updateLive((l) => ({ ...l, fase: "running", runningSince: Date.now() }));
   const finePeriodo = () => {
-    pausa();
-    updateLive((l) => ({ ...l, fase: l.periodo >= numPeriodi ? "finita" : "intervallo", runningSince: null }));
+    updateLive((l) => {
+      let live = l;
+      if (live.fase === "running" && live.runningSince) {
+        const add = Math.floor((Date.now() - live.runningSince) / 1000);
+        const idx = live.periodo - 1;
+        const elapsed = [...live.elapsed];
+        elapsed[idx] = (elapsed[idx] || 0) + add;
+        live = { ...live, elapsed };
+      }
+      return { ...live, fase: live.periodo >= numPeriodi ? "finita" : "intervallo", runningSince: null };
+    });
   };
 
   const minutoCorrente = liveMinuto(live, categoria);
@@ -1156,52 +1140,84 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
   const registraEvento = (tipo, playerId, extra = {}) => {
     const minuto = minutoCorrente;
     const evId = `ev_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    if (tipo === "giallo") {
-      updateEntry(playerId, (e) => ({ cartelliniGialli: (Number(e.cartelliniGialli) || 0) + 1 }));
-    } else if (tipo === "rosso") {
-      updateEntry(playerId, { cartellinoRosso: true });
-    } else if (tipo === "gol") {
-      updateEntry(playerId, (e) => ({ golSegnati: String((Number(e.golSegnati) || 0) + 1) }));
-      setScore("golFatti", 1);
-    } else if (tipo === "gol_subito") {
-      updateEntry(playerId, (e) => ({ golSubitiPortiere: String((Number(e.golSubitiPortiere) || 0) + 1) }));
-      setScore("golSubiti", 1);
-    } else if (tipo === "sostituzione") {
-      const { entranteId } = extra;
-      updateEntries({
-        [playerId]: { sostituito: true, minutoSostituzione: String(minuto), minutaggio: String(minuto) },
-        [entranteId]: {
+    // Tutto in un'unica scrittura: modifica ai giocatori coinvolti + registrazione
+    // dell'evento nel log, così non ci sono più scritture separate che possono
+    // sovrascriversi a vicenda (es. sostituzione registrata ma poi persa perché
+    // il salvataggio del log si basava su dati non ancora aggiornati).
+    onUpdateMatch(m.id, (x) => {
+      const entries = { ...x.entries };
+      const patchEntry = (id, patch) => {
+        const prev = entries[id] || emptyMatchEntry();
+        entries[id] = { ...prev, ...(typeof patch === "function" ? patch(prev) : patch) };
+      };
+      let golFatti = x.golFatti;
+      let golSubiti = x.golSubiti;
+      if (tipo === "giallo") {
+        patchEntry(playerId, (e) => ({ cartelliniGialli: (Number(e.cartelliniGialli) || 0) + 1 }));
+      } else if (tipo === "rosso") {
+        patchEntry(playerId, { cartellinoRosso: true });
+      } else if (tipo === "gol") {
+        patchEntry(playerId, (e) => ({ golSegnati: String((Number(e.golSegnati) || 0) + 1) }));
+        golFatti = String(Math.max(0, (Number(x.golFatti) || 0) + 1));
+      } else if (tipo === "gol_subito") {
+        patchEntry(playerId, (e) => ({ golSubitiPortiere: String((Number(e.golSubitiPortiere) || 0) + 1) }));
+        golSubiti = String(Math.max(0, (Number(x.golSubiti) || 0) + 1));
+      } else if (tipo === "sostituzione") {
+        const { entranteId } = extra;
+        patchEntry(playerId, { sostituito: true, minutoSostituzione: String(minuto), minutaggio: String(minuto) });
+        patchEntry(entranteId, {
           stato: "subentrato",
           minutoSubentro: String(minuto),
           minutaggio: String(Math.max(0, durataPartita - minuto)),
+        });
+      }
+      const live = normalizzaLive(x.live, numPeriodi);
+      return {
+        ...x,
+        entries,
+        golFatti,
+        golSubiti,
+        live: {
+          ...live,
+          eventi: [...live.eventi, { id: evId, minuto, tipo, playerId, entranteId: extra.entranteId || null, ts: Date.now() }],
         },
-      });
-    }
-    updateLive((l) => ({
-      ...l,
-      eventi: [...l.eventi, { id: evId, minuto, tipo, playerId, entranteId: extra.entranteId || null, ts: Date.now() }],
-    }));
+      };
+    });
     chiudiEvento();
   };
 
   const annullaEvento = (ev) => {
-    if (ev.tipo === "giallo") {
-      updateEntry(ev.playerId, (e) => ({ cartelliniGialli: Math.max(0, (Number(e.cartelliniGialli) || 0) - 1) }));
-    } else if (ev.tipo === "rosso") {
-      updateEntry(ev.playerId, { cartellinoRosso: false });
-    } else if (ev.tipo === "gol") {
-      updateEntry(ev.playerId, (e) => ({ golSegnati: String(Math.max(0, (Number(e.golSegnati) || 0) - 1)) }));
-      setScore("golFatti", -1);
-    } else if (ev.tipo === "gol_subito") {
-      updateEntry(ev.playerId, (e) => ({ golSubitiPortiere: String(Math.max(0, (Number(e.golSubitiPortiere) || 0) - 1)) }));
-      setScore("golSubiti", -1);
-    } else if (ev.tipo === "sostituzione") {
-      updateEntries({
-        [ev.playerId]: { sostituito: false, minutoSostituzione: "", minutaggio: "" },
-        [ev.entranteId]: { stato: "riserva", minutoSubentro: "", minutaggio: "" },
-      });
-    }
-    updateLive((l) => ({ ...l, eventi: l.eventi.filter((x) => x.id !== ev.id) }));
+    onUpdateMatch(m.id, (x) => {
+      const entries = { ...x.entries };
+      const patchEntry = (id, patch) => {
+        const prev = entries[id] || emptyMatchEntry();
+        entries[id] = { ...prev, ...(typeof patch === "function" ? patch(prev) : patch) };
+      };
+      let golFatti = x.golFatti;
+      let golSubiti = x.golSubiti;
+      if (ev.tipo === "giallo") {
+        patchEntry(ev.playerId, (e) => ({ cartelliniGialli: Math.max(0, (Number(e.cartelliniGialli) || 0) - 1) }));
+      } else if (ev.tipo === "rosso") {
+        patchEntry(ev.playerId, { cartellinoRosso: false });
+      } else if (ev.tipo === "gol") {
+        patchEntry(ev.playerId, (e) => ({ golSegnati: String(Math.max(0, (Number(e.golSegnati) || 0) - 1)) }));
+        golFatti = String(Math.max(0, (Number(x.golFatti) || 0) - 1));
+      } else if (ev.tipo === "gol_subito") {
+        patchEntry(ev.playerId, (e) => ({ golSubitiPortiere: String(Math.max(0, (Number(e.golSubitiPortiere) || 0) - 1)) }));
+        golSubiti = String(Math.max(0, (Number(x.golSubiti) || 0) - 1));
+      } else if (ev.tipo === "sostituzione") {
+        patchEntry(ev.playerId, { sostituito: false, minutoSostituzione: "", minutaggio: "" });
+        patchEntry(ev.entranteId, { stato: "riserva", minutoSubentro: "", minutaggio: "" });
+      }
+      const live = normalizzaLive(x.live, numPeriodi);
+      return {
+        ...x,
+        entries,
+        golFatti,
+        golSubiti,
+        live: { ...live, eventi: live.eventi.filter((e2) => e2.id !== ev.id) },
+      };
+    });
   };
 
   const EVENTO_LABELS = {
