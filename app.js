@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.68";
+const APP_VERSION = "2.69";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1078,6 +1078,20 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
     });
   };
 
+  // Applica più modifiche a più giocatori in un'unica scrittura, evitando che due
+  // updateEntry ravvicinati (es. sostituzione: chi esce + chi entra) si sovrascrivano
+  // a vicenda perché basati sullo stesso stato non ancora aggiornato.
+  const updateEntries = (patches) => {
+    onUpdateMatch(m.id, (x) => {
+      const nuoveEntries = { ...x.entries };
+      Object.entries(patches).forEach(([playerId, patch]) => {
+        const prevEntry = nuoveEntries[playerId] || x.entries[playerId] || emptyMatchEntry();
+        nuoveEntries[playerId] = { ...prevEntry, ...(typeof patch === "function" ? patch(prevEntry) : patch) };
+      });
+      return { ...x, entries: nuoveEntries };
+    });
+  };
+
   const setScore = (campo, delta) => {
     onUpdateMatch(m.id, (x) => ({ ...x, [campo]: String(Math.max(0, (Number(x[campo]) || 0) + delta)) }));
   };
@@ -1154,11 +1168,13 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
       setScore("golSubiti", 1);
     } else if (tipo === "sostituzione") {
       const { entranteId } = extra;
-      updateEntry(playerId, { sostituito: true, minutoSostituzione: String(minuto), minutaggio: String(minuto) });
-      updateEntry(entranteId, {
-        stato: "subentrato",
-        minutoSubentro: String(minuto),
-        minutaggio: String(Math.max(0, durataPartita - minuto)),
+      updateEntries({
+        [playerId]: { sostituito: true, minutoSostituzione: String(minuto), minutaggio: String(minuto) },
+        [entranteId]: {
+          stato: "subentrato",
+          minutoSubentro: String(minuto),
+          minutaggio: String(Math.max(0, durataPartita - minuto)),
+        },
       });
     }
     updateLive((l) => ({
@@ -1180,8 +1196,10 @@ function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onC
       updateEntry(ev.playerId, (e) => ({ golSubitiPortiere: String(Math.max(0, (Number(e.golSubitiPortiere) || 0) - 1)) }));
       setScore("golSubiti", -1);
     } else if (ev.tipo === "sostituzione") {
-      updateEntry(ev.playerId, { sostituito: false, minutoSostituzione: "", minutaggio: "" });
-      updateEntry(ev.entranteId, { stato: "riserva", minutoSubentro: "", minutaggio: "" });
+      updateEntries({
+        [ev.playerId]: { sostituito: false, minutoSostituzione: "", minutaggio: "" },
+        [ev.entranteId]: { stato: "riserva", minutoSubentro: "", minutaggio: "" },
+      });
     }
     updateLive((l) => ({ ...l, eventi: l.eventi.filter((x) => x.id !== ev.id) }));
   };
