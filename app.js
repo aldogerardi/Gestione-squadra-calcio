@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.66";
+const APP_VERSION = "2.67";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1996,11 +1996,17 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
             </button>
           </div>
         )}
-        {!readOnly && !m.chiuso && titolariCount > 0 && (
+        {!readOnly && !m.chiuso && (
           <div className="training-actions">
-            <button type="button" className="btn-mini live" onClick={() => onLive(m)}>
-              <Icon name="Play" size={14} /> {m.live && m.live.fase && m.live.fase !== "idle" ? "Riprendi live" : "Avvia live"}
-            </button>
+            {titolariCount > 0 ? (
+              <button type="button" className="btn-mini live" onClick={() => onLive(m)}>
+                <Icon name="Play" size={14} /> {m.live && m.live.fase && m.live.fase !== "idle" ? "Riprendi live" : "Avvia live"}
+              </button>
+            ) : (
+              <span className="live-hint">
+                <Icon name="Play" size={14} /> Assegna prima i titolari (maglie 1-11) per avviare il live
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -5979,6 +5985,12 @@ const css = `
   .btn-mini.report { background: #E9EEF2; color: var(--pitch-dark); }
   .btn-mini.whatsapp { background: #25D366; color: white; }
   .btn-mini.live { background: #C1440E; color: white; }
+  .live-hint {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--ink-soft);
+    padding: 8px 10px; background: #F4F1EC; border-radius: 8px;
+    flex: 1;
+  }
   .ts-chip {
     font-size: 12px;
     font-weight: 600;
