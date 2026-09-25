@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.65";
+const APP_VERSION = "2.66";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -3828,18 +3828,19 @@ function App() {
   const scadutiCount = giocatoriCategoria.filter((p) => certStatus(p.scadenzaCertificato).tone !== "ok").length;
 
   const savePlayer = (p) => {
-    setEditing(null);
     if (typeof window.fsSaveDoc === "function") {
-      window.fsSaveDoc("giocatori", p.id, p).catch((err) => {
-        console.error("Errore salvataggio giocatore su Firestore:", err);
-        setImportMsg("Errore salvataggio: " + (err && err.message ? err.message : "riprova"));
-      });
+      window.fsSaveDoc("giocatori", p.id, p)
+        .then(() => setEditing(null))
+        .catch((err) => {
+          console.error("Errore salvataggio giocatore su Firestore:", err);
+          alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+        });
     } else {
-      // Fallback offline: aggiorna solo localmente finché Firestore non è raggiungibile.
       setPlayers((prev) => {
         const exists = prev.some((x) => x.id === p.id);
         return exists ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, p];
       });
+      setEditing(null);
     }
   };
 
@@ -3862,17 +3863,19 @@ function App() {
   );
 
   const saveTraining = (t) => {
-    setEditingTraining(null);
     if (typeof window.fsSaveDoc === "function") {
-      window.fsSaveDoc("allenamenti", t.id, t).catch((err) => {
-        console.error("Errore salvataggio allenamento su Firestore:", err);
-        setImportMsg("Errore salvataggio: " + (err && err.message ? err.message : "riprova"));
-      });
+      window.fsSaveDoc("allenamenti", t.id, t)
+        .then(() => setEditingTraining(null))
+        .catch((err) => {
+          console.error("Errore salvataggio allenamento su Firestore:", err);
+          alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+        });
     } else {
       setTrainings((prev) => {
         const exists = prev.some((x) => x.id === t.id);
         return exists ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t];
       });
+      setEditingTraining(null);
     }
   };
 
@@ -3895,17 +3898,19 @@ function App() {
   );
 
   const saveMatch = (m) => {
-    setEditingMatch(null);
     if (typeof window.fsSaveDoc === "function") {
-      window.fsSaveDoc("partite", m.id, m).catch((err) => {
-        console.error("Errore salvataggio partita su Firestore:", err);
-        setImportMsg("Errore salvataggio: " + (err && err.message ? err.message : "riprova"));
-      });
+      window.fsSaveDoc("partite", m.id, m)
+        .then(() => setEditingMatch(null))
+        .catch((err) => {
+          console.error("Errore salvataggio partita su Firestore:", err);
+          alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+        });
     } else {
       setMatches((prev) => {
         const exists = prev.some((x) => x.id === m.id);
         return exists ? prev.map((x) => (x.id === m.id ? m : x)) : [...prev, m];
       });
+      setEditingMatch(null);
     }
   };
 
@@ -3940,16 +3945,19 @@ function App() {
   }, [friendlies, trainings, categoriaAttiva, modalitaDirettore]);
 
   const saveFriendly = (f) => {
-    setEditingFriendly(null);
     if (typeof window.fsSaveDoc === "function") {
-      window.fsSaveDoc("partitelle", f.id, f).catch((err) => {
-        console.error("Errore salvataggio partitella su Firestore:", err);
-      });
+      window.fsSaveDoc("partitelle", f.id, f)
+        .then(() => setEditingFriendly(null))
+        .catch((err) => {
+          console.error("Errore salvataggio partitella su Firestore:", err);
+          alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+        });
     } else {
       setFriendlies((prev) => {
         const exists = prev.some((x) => x.id === f.id);
         return exists ? prev.map((x) => (x.id === f.id ? f : x)) : [...prev, f];
       });
+      setEditingFriendly(null);
     }
   };
 
@@ -3962,16 +3970,19 @@ function App() {
   };
 
   const saveConvocazione = (c) => {
-    setEditingConvocazione(null);
     if (typeof window.fsSaveDoc === "function") {
-      window.fsSaveDoc("convocazioni", c.id, c).catch((err) => {
-        console.error("Errore salvataggio convocazione su Firestore:", err);
-      });
+      window.fsSaveDoc("convocazioni", c.id, c)
+        .then(() => setEditingConvocazione(null))
+        .catch((err) => {
+          console.error("Errore salvataggio convocazione su Firestore:", err);
+          alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+        });
     } else {
       setConvocazioni((prev) => {
         const exists = prev.some((x) => x.id === c.id);
         return exists ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, c];
       });
+      setEditingConvocazione(null);
     }
   };
 
