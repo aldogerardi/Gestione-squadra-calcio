@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.70";
+const APP_VERSION = "2.71";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1039,6 +1039,202 @@ function MatchReport({ m, players, nomeSquadra, onClose }) {
               </div>
             </div>
           ))
+        )}
+      </div>
+
+      <div className="sheet-actions">
+        <button type="button" className="btn ghost" onClick={onClose}>
+          Chiudi
+        </button>
+        <button type="button" className="btn primary" onClick={condividiWhatsapp} style={{ background: "#25D366" }}>
+          <WhatsAppIcon size={15} /> Invia WhatsApp
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Report sintetico per il Direttore Sportivo: risultato, marcatori, sostituzioni e cartellini.
+// Usa gli eventi live minuto per minuto quando la partita è stata giocata in modalità Live
+// (più precisi, con l'abbinamento esatto uscita/entrata), altrimenti ricostruisce lo stesso
+// riepilogo dai dati aggregati salvati nella scheda partita (classico inserimento manuale).
+function MatchEventsReport({ m, players, nomeSquadra, onClose }) {
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  const noi = nomeSquadra || "Rosa Squadra";
+  const inCasa = m.casa !== false;
+  const dataStr = new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
+  const tipoLabel = m.tipo === "amichevole" ? "Amichevole" : m.tipo === "coppa" ? "Coppa" : "Campionato";
+  const haRisultato = m.golFatti !== "" && m.golFatti !== undefined && m.golSubiti !== "" && m.golSubiti !== undefined;
+
+  const eventiLive = m.live && Array.isArray(m.live.eventi) ? m.live.eventi : [];
+  const usaLive = eventiLive.length > 0;
+
+  // --- Marcatori, cartellini e sostituzioni: dagli eventi live se presenti... ---
+  let marcatori = [],
+    golSubitiEventi = [],
+    ammoniti = [],
+    espulsi = [],
+    sostituzioni = [];
+
+  if (usaLive) {
+    const ordinati = [...eventiLive].sort((a, b) => a.minuto - b.minuto);
+    marcatori = ordinati.filter((e) => e.tipo === "gol").map((e) => ({ minuto: e.minuto, p: byId[e.playerId] }));
+    golSubitiEventi = ordinati.filter((e) => e.tipo === "gol_subito").map((e) => ({ minuto: e.minuto, p: byId[e.playerId] }));
+    ammoniti = ordinati.filter((e) => e.tipo === "giallo").map((e) => ({ minuto: e.minuto, p: byId[e.playerId] }));
+    espulsi = ordinati.filter((e) => e.tipo === "rosso").map((e) => ({ minuto: e.minuto, p: byId[e.playerId] }));
+    sostituzioni = ordinati
+      .filter((e) => e.tipo === "sostituzione")
+      .map((e) => ({ minuto: e.minuto, esce: byId[e.playerId], entra: byId[e.entranteId] }));
+  } else {
+    // --- ...altrimenti dai totali/flag salvati per ogni giocatore ---
+    Object.entries(m.entries || {}).forEach(([id, e]) => {
+      const p = byId[id];
+      if (!p) return;
+      const nGol = Number(e.golSegnati) || 0;
+      for (let i = 0; i < nGol; i++) marcatori.push({ minuto: null, p });
+      const nGolSub = Number(e.golSubitiPortiere) || 0;
+      for (let i = 0; i < nGolSub; i++) golSubitiEventi.push({ minuto: null, p });
+      const nGialli = Number(e.cartelliniGialli) || 0;
+      for (let i = 0; i < nGialli; i++) ammoniti.push({ minuto: null, p });
+      if (e.cartellinoRosso) espulsi.push({ minuto: null, p });
+    });
+    const usciti = Object.entries(m.entries || {})
+      .filter(([, e]) => e.sostituito)
+      .map(([id, e]) => ({ minuto: e.minutoSostituzione ? Number(e.minutoSostituzione) : null, p: byId[id] }))
+      .filter((r) => r.p);
+    const entrati = Object.entries(m.entries || {})
+      .filter(([, e]) => e.stato === "subentrato")
+      .map(([id, e]) => ({ minuto: e.minutoSubentro ? Number(e.minutoSubentro) : null, p: byId[id] }))
+      .filter((r) => r.p);
+    // Nessun abbinamento uscita/entrata salvato per l'inserimento manuale: le due liste
+    // vengono mostrate separate, ordinate per minuto.
+    sostituzioni = { usciti: usciti.sort((a, b) => (a.minuto || 0) - (b.minuto || 0)), entrati: entrati.sort((a, b) => (a.minuto || 0) - (b.minuto || 0)) };
+  }
+
+  const condividiWhatsapp = () => {
+    let testo = `📊 REPORT PARTITA\n${noi} ${inCasa ? "🏠" : "🚌"} vs ${m.avversario || "Avversario"} — ${dataStr} (${tipoLabel})\n`;
+    testo += `\nRisultato: ${haRisultato ? `${m.golFatti}-${m.golSubiti}` : "non inserito"}\n`;
+    testo += `\n⚽ Gol fatti (${marcatori.length}):\n`;
+    testo += marcatori.map((g) => `${g.minuto !== null ? g.minuto + "' " : ""}${g.p ? g.p.cognome + " " + g.p.nome : "?"}`).join("\n") || "—";
+    testo += `\n\n🧤 Gol subiti: ${haRisultato ? m.golSubiti : golSubitiEventi.length}\n`;
+    testo += `\n🟨 Ammoniti (${ammoniti.length}):\n`;
+    testo += ammoniti.map((g) => `${g.minuto !== null ? g.minuto + "' " : ""}${g.p ? g.p.cognome + " " + g.p.nome : "?"}`).join("\n") || "—";
+    testo += `\n\n🟥 Espulsi (${espulsi.length}):\n`;
+    testo += espulsi.map((g) => `${g.minuto !== null ? g.minuto + "' " : ""}${g.p ? g.p.cognome + " " + g.p.nome : "?"}`).join("\n") || "—";
+    testo += `\n\n🔄 Sostituzioni:\n`;
+    if (usaLive) {
+      testo += sostituzioni.map((s) => `${s.minuto}' ${s.esce ? s.esce.cognome : "?"} ⇄ ${s.entra ? s.entra.cognome : "?"}`).join("\n") || "—";
+    } else {
+      testo += "Usciti: " + (sostituzioni.usciti.map((r) => `${r.minuto !== null ? r.minuto + "' " : ""}${r.p.cognome}`).join(", ") || "—");
+      testo += "\nEntrati: " + (sostituzioni.entrati.map((r) => `${r.minuto !== null ? r.minuto + "' " : ""}${r.p.cognome}`).join(", ") || "—");
+    }
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`, "_blank");
+  };
+
+  return (
+    <div className="sheet">
+      <div className="sheet-header">
+        <h2>Report partita</h2>
+        <button type="button" className="icon-btn" onClick={onClose}>
+          <Icon name="X" size={18} />
+        </button>
+      </div>
+
+      <p className="muted" style={{ marginBottom: 4 }}>
+        {noi} {inCasa ? "🏠" : "🚌"} vs {m.avversario || "Avversario"} · {dataStr} · {tipoLabel}
+      </p>
+      <p className="report-risultato-grande">{haRisultato ? `${m.golFatti} - ${m.golSubiti}` : "Risultato non inserito"}</p>
+
+      <div className="distinta-group">
+        <div className="distinta-group-title titolari-title">⚽ Gol fatti ({marcatori.length})</div>
+        {marcatori.length === 0 ? (
+          <p className="muted">Nessuno.</p>
+        ) : (
+          marcatori.map((g, i) => (
+            <div key={i} className="distinta-row">
+              <span className="distinta-num">{g.minuto !== null ? `${g.minuto}'` : "—"}</span>
+              <div className="distinta-name-block">
+                <div className="distinta-name">{g.p ? `${g.p.cognome} ${g.p.nome}` : "Sconosciuto"}</div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="distinta-group">
+        <div className="distinta-group-title riserve-title">🧤 Gol subiti ({haRisultato ? m.golSubiti : golSubitiEventi.length})</div>
+        {golSubitiEventi.length === 0 ? (
+          <p className="muted">Nessun dettaglio per portiere registrato.</p>
+        ) : (
+          golSubitiEventi.map((g, i) => (
+            <div key={i} className="distinta-row">
+              <span className="distinta-num">{g.minuto !== null ? `${g.minuto}'` : "—"}</span>
+              <div className="distinta-name-block">
+                <div className="distinta-name">{g.p ? `${g.p.cognome} ${g.p.nome}` : "Sconosciuto"}</div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="distinta-group">
+        <div className="distinta-group-title">🔄 Sostituzioni</div>
+        {usaLive ? (
+          sostituzioni.length === 0 ? (
+            <p className="muted">Nessuna.</p>
+          ) : (
+            sostituzioni.map((s, i) => (
+              <div key={i} className="distinta-row">
+                <span className="distinta-num">{s.minuto}'</span>
+                <div className="distinta-name-block">
+                  <div className="distinta-name">
+                    {s.esce ? `${s.esce.cognome} ${s.esce.nome}` : "?"} ⇄ {s.entra ? `${s.entra.cognome} ${s.entra.nome}` : "?"}
+                  </div>
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          <>
+            <p className="muted" style={{ marginBottom: 4 }}>
+              <strong>Usciti:</strong>{" "}
+              {sostituzioni.usciti.length
+                ? sostituzioni.usciti.map((r) => `${r.p.cognome}${r.minuto !== null ? ` (${r.minuto}')` : ""}`).join(", ")
+                : "—"}
+            </p>
+            <p className="muted">
+              <strong>Entrati:</strong>{" "}
+              {sostituzioni.entrati.length
+                ? sostituzioni.entrati.map((r) => `${r.p.cognome}${r.minuto !== null ? ` (${r.minuto}')` : ""}`).join(", ")
+                : "—"}
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="distinta-group">
+        <div className="distinta-group-title">🟨 Ammoniti ({ammoniti.length}) · 🟥 Espulsi ({espulsi.length})</div>
+        {ammoniti.length === 0 && espulsi.length === 0 ? (
+          <p className="muted">Nessuno.</p>
+        ) : (
+          <>
+            {ammoniti.map((g, i) => (
+              <div key={"g" + i} className="distinta-row">
+                <span className="distinta-num">{g.minuto !== null ? `${g.minuto}'` : "🟨"}</span>
+                <div className="distinta-name-block">
+                  <div className="distinta-name">{g.p ? `${g.p.cognome} ${g.p.nome}` : "Sconosciuto"}</div>
+                </div>
+              </div>
+            ))}
+            {espulsi.map((g, i) => (
+              <div key={"r" + i} className="distinta-row">
+                <span className="distinta-num">{g.minuto !== null ? `${g.minuto}'` : "🟥"}</span>
+                <div className="distinta-name-block">
+                  <div className="distinta-name">{g.p ? `${g.p.cognome} ${g.p.nome}` : "Sconosciuto"}</div>
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
@@ -2217,7 +2413,7 @@ function TeamReportTab({ matches, players, nomeSquadra, vistaTutteCategorie }) {
 }
 
 
-function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie, categoriaAttiva, setCategoriaAttiva }) {
+function RisultatiTab({ matches, players, nomeSquadra, vistaTutteCategorie, categoriaAttiva, setCategoriaAttiva, onReport }) {
   const [mese, setMese] = useState("tutti");
   const [weekend, setWeekend] = useState("tutti");
 
@@ -2325,6 +2521,14 @@ function RisultatiTab({ matches, nomeSquadra, vistaTutteCategorie, categoriaAtti
                     </div>
                   </div>
                   <div className="risultati-score">{haRisultato ? `${m.golFatti}-${m.golSubiti}` : "—"}</div>
+                  <button
+                    type="button"
+                    className="icon-btn risultati-report-btn"
+                    onClick={() => onReport(m)}
+                    aria-label="Report partita"
+                  >
+                    <Icon name="ClipboardList" size={16} />
+                  </button>
                 </div>
               );
             })}
@@ -3328,6 +3532,7 @@ function App() {
   const [editingMatch, setEditingMatch] = useState(null);
   const [reportMatch, setReportMatch] = useState(null);
   const [reportMatchQuick, setReportMatchQuick] = useState(null);
+  const [reportEventiMatch, setReportEventiMatch] = useState(null);
   const [liveMatchId, setLiveMatchId] = useState(null);
   const [swUpdateReg, setSwUpdateReg] = useState(null);
   const [swNewVersion, setSwNewVersion] = useState(null);
@@ -4825,10 +5030,12 @@ function App() {
             {unlocked ? (
               <RisultatiTab
                 matches={sortedMatches}
+                players={giocatoriCategoria}
                 nomeSquadra={nomeSquadra}
                 vistaTutteCategorie={vistaTutteCategorie}
                 categoriaAttiva={categoriaAttiva}
                 setCategoriaAttiva={setCategoriaAttiva}
+                onReport={setReportEventiMatch}
               />
             ) : (
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
@@ -4916,6 +5123,19 @@ function App() {
               players={giocatoriCategoria}
               nomeSquadra={nomeSquadra}
               onClose={() => setReportMatchQuick(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {reportEventiMatch && (
+        <div className="modal-backdrop" onClick={() => setReportEventiMatch(null)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <MatchEventsReport
+              m={reportEventiMatch}
+              players={giocatoriCategoria}
+              nomeSquadra={nomeSquadra}
+              onClose={() => setReportEventiMatch(null)}
             />
           </div>
         </div>
@@ -5804,6 +6024,13 @@ const css = `
   .risultati-avv { font-weight: 700; font-size: 13.5px; }
   .risultati-meta { font-size: 12px; color: var(--ink-soft); margin-top: 1px; }
   .risultati-score { font-weight: 700; font-size: 15px; color: var(--pitch-dark); flex-shrink: 0; }
+  .risultati-report-btn { flex-shrink: 0; color: var(--ink-soft); }
+  .report-risultato-grande {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--pitch-dark);
+    margin: 4px 0 14px 0;
+  }
   .cartellini-table { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .cartellini-row {
     display: flex;
