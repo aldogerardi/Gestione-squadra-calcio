@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.73";
+const APP_VERSION = "2.74";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -4368,10 +4368,15 @@ function App() {
   const onContentTouchStart = (e) => {
     const t = e.touches[0];
     // Se il tocco parte dentro una tabella/elemento che scorre già in orizzontale
-    // (es. il report largo), non cambiamo sezione: lasciamo scorrere quello.
+    // (es. il report largo) o dentro la lavagna tattica (dove il trascinamento dei
+    // giocatori è orizzontale), non cambiamo sezione: lasciamo gestire il tocco a quell'area.
     let el = e.target;
     let ignora = false;
     while (el && el !== e.currentTarget) {
+      if (el.classList && el.classList.contains("lavagna-campo-wrap")) {
+        ignora = true;
+        break;
+      }
       if (el.scrollWidth > el.clientWidth + 4) {
         const overflowX = window.getComputedStyle(el).overflowX;
         if (overflowX === "auto" || overflowX === "scroll") {
