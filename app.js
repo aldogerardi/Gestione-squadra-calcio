@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.71";
+const APP_VERSION = "2.72";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1250,6 +1250,402 @@ function MatchEventsReport({ m, players, nomeSquadra, onClose }) {
   );
 }
 
+// --- Lavagna tattica: campo intero, giocatori presi dalla distinta partita (titolari
+// posizionati di default per linea di ruolo, riserve richiamabili dalla panchina),
+// trascinabili liberamente, con frecce di movimento disegnabili a mano.
+const RUOLO_LINEA = {
+  Portiere: "portiere",
+  Difensore: "difesa",
+  "Difensore centrale": "difesa",
+  "Terzino DX": "difesa",
+  "Terzino SX": "difesa",
+  Centrocampista: "centrocampo",
+  "Centrocampista centrale": "centrocampo",
+  "Ala DX": "attacco",
+  "Ala SX": "attacco",
+  Attaccante: "attacco",
+};
+const LAVAGNA_LINEA_Y = { portiere: 146, difesa: 112, centrocampo: 78, attacco: 40 };
+
+function lavagnaOrdineLato(ruolo) {
+  if ((ruolo || "").includes(" SX")) return 0;
+  if ((ruolo || "").includes(" DX")) return 2;
+  return 1;
+}
+function lavagnaSpreadX(n, i) {
+  if (n <= 1) return 50;
+  const margine = 14;
+  return margine + ((100 - 2 * margine) * i) / (n - 1);
+}
+function lavagnaPosizioniDefault(righe) {
+  const gruppi = { portiere: [], difesa: [], centrocampo: [], attacco: [] };
+  righe.forEach((r) => {
+    const linea = RUOLO_LINEA[r.p.ruolo] || "centrocampo";
+    gruppi[linea].push(r);
+  });
+  const out = {};
+  Object.entries(gruppi).forEach(([linea, arr]) => {
+    arr.sort((a, b) => lavagnaOrdineLato(a.p.ruolo) - lavagnaOrdineLato(b.p.ruolo));
+    arr.forEach((r, i) => {
+      out[r.p.id] = { x: lavagnaSpreadX(arr.length, i), y: LAVAGNA_LINEA_Y[linea] };
+    });
+  });
+  return out;
+}
+
+function TacticalBoardModal({ m, players, nomeSquadra, onUpdateMatch, onClose }) {
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  const noi = nomeSquadra || "Rosa Squadra";
+
+  const convocati = Object.entries(m.entries || {})
+    .filter(([, e]) => ["titolare", "riserva", "subentrato", "infortunato"].includes(e.stato))
+    .map(([id, e]) => ({ p: byId[id], e, n: e.numeroMagliaPartita !== "" ? Number(e.numeroMagliaPartita) : null }))
+    .filter((r) => r.p);
+  const titolari = convocati.filter((r) => r.n !== null && r.n >= 1 && r.n <= 11).sort((a, b) => a.n - b.n);
+  const riserve = convocati.filter((r) => r.n !== null && r.n >= 12 && r.n <= 20).sort((a, b) => a.n - b.n);
+  const tuttiSelezionabili = [...titolari, ...riserve];
+
+  const svgRef = useRef(null);
+  const posizioniRef = useRef(null);
+  const frecceRef = useRef(null);
+  const saveTimer = useRef(null);
+  const primoRender = useRef(true);
+
+  const [posizioni, setPosizioni] = useState(() => {
+    const salvate = (m.lavagna && m.lavagna.posizioni) || {};
+    const out = { ...salvate };
+    const mancanti = titolari.filter((r) => !out[r.p.id]);
+    Object.assign(out, lavagnaPosizioniDefault(mancanti));
+    return out;
+  });
+  const [frecce, setFrecce] = useState(() => (m.lavagna && m.lavagna.frecce) || []);
+  const [modo, setModo] = useState("sposta"); // 'sposta' | 'frecce'
+  const [trascId, setTrascId] = useState(null);
+  const [freccIn, setFreccIn] = useState(null);
+  const [freccPrev, setFreccPrev] = useState(null);
+  const [printMode, setPrintMode] = useState(false);
+
+  posizioniRef.current = posizioni;
+  frecceRef.current = frecce;
+
+  useEffect(() => {
+    if (primoRender.current) {
+      primoRender.current = false;
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      onUpdateMatch(m.id, (x) => ({ ...x, lavagna: { posizioni: posizioniRef.current, frecce: frecceRef.current } }));
+    }, 500);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posizioni, frecce]);
+
+  useEffect(() => {
+    if (!printMode) return;
+    const t = setTimeout(() => window.print(), 80);
+    const onAfter = () => setPrintMode(false);
+    window.addEventListener("afterprint", onAfter);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("afterprint", onAfter);
+    };
+  }, [printMode]);
+
+  const puntoDaEvento = (e) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 50, y: 75 };
+    const rect = svg.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 155;
+    return { x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(153, y)) };
+  };
+
+  const onPointerDownPlayer = (id) => (e) => {
+    e.stopPropagation();
+    const pt = posizioni[id] || puntoDaEvento(e);
+    if (modo === "sposta") {
+      setTrascId(id);
+    } else {
+      setFreccIn(pt);
+      setFreccPrev(pt);
+    }
+    if (e.target.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        e.target.setPointerCapture(e.pointerId);
+      } catch (err) {}
+    }
+  };
+
+  const onPointerDownSfondo = (e) => {
+    if (modo !== "frecce") return;
+    const pt = puntoDaEvento(e);
+    setFreccIn(pt);
+    setFreccPrev(pt);
+  };
+
+  const onPointerMove = (e) => {
+    if (trascId) {
+      setPosizioni((prev) => ({ ...prev, [trascId]: puntoDaEvento(e) }));
+    } else if (freccIn) {
+      setFreccPrev(puntoDaEvento(e));
+    }
+  };
+
+  const onPointerUp = () => {
+    if (trascId) setTrascId(null);
+    if (freccIn && freccPrev) {
+      const dist = Math.hypot(freccPrev.x - freccIn.x, freccPrev.y - freccIn.y);
+      if (dist > 4) {
+        setFrecce((prev) => [...prev, { id: `f_${Date.now()}`, x1: freccIn.x, y1: freccIn.y, x2: freccPrev.x, y2: freccPrev.y }]);
+      }
+    }
+    setFreccIn(null);
+    setFreccPrev(null);
+  };
+
+  const rimuoviDalCampo = (id) => {
+    setPosizioni((prev) => {
+      const c = { ...prev };
+      delete c[id];
+      return c;
+    });
+  };
+  const aggiungiAlCampo = (id) => {
+    setPosizioni((prev) => ({ ...prev, [id]: { x: 50, y: 78 } }));
+  };
+  const eliminaFreccia = (id) => {
+    setFrecce((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  const inCampoIds = Object.keys(posizioni);
+  const inPanchina = riserve.filter((r) => !inCampoIds.includes(r.p.id));
+
+  const esportaPNG = () =>
+    new Promise((resolve, reject) => {
+      const svg = svgRef.current;
+      if (!svg) return reject(new Error("Campo non pronto"));
+      const clone = svg.cloneNode(true);
+      clone.querySelectorAll(".lavagna-solo-editor").forEach((el) => el.remove());
+      const xml = new XMLSerializer().serializeToString(clone);
+      const svg64 = btoa(unescape(encodeURIComponent(xml)));
+      const img = new Image();
+      img.onload = () => {
+        const scale = 8;
+        const canvas = document.createElement("canvas");
+        canvas.width = 100 * scale;
+        canvas.height = 155 * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob), "image/png");
+      };
+      img.onerror = reject;
+      img.src = "data:image/svg+xml;base64," + svg64;
+    });
+
+  const condividi = async () => {
+    try {
+      const blob = await esportaPNG();
+      const file = new File([blob], `lavagna-${(m.avversario || "partita").replace(/\s+/g, "_")}.png`, { type: "image/png" });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Lavagna tattica", text: `${noi} vs ${m.avversario || "Avversario"}` });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `lavagna-${(m.avversario || "partita").replace(/\s+/g, "_")}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        alert("Immagine salvata sul telefono: aprila e condividila su WhatsApp dalla galleria o dalle foto.");
+      }
+    } catch (err) {
+      console.error("Errore esportazione lavagna:", err);
+      alert("Non sono riuscito a generare l'immagine: " + (err && err.message ? err.message : "riprova"));
+    }
+  };
+
+  const renderCampo = (perStampa) => (
+    <svg
+      ref={!perStampa ? svgRef : null}
+      viewBox="0 0 100 155"
+      className={perStampa ? "lavagna-svg lavagna-svg-stampa" : "lavagna-svg"}
+      onPointerDown={!perStampa ? onPointerDownSfondo : undefined}
+      onPointerMove={!perStampa ? onPointerMove : undefined}
+      onPointerUp={!perStampa ? onPointerUp : undefined}
+      onPointerLeave={!perStampa ? onPointerUp : undefined}
+    >
+      <rect x="0" y="0" width="100" height="155" fill="#2D6A4F" />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <rect key={i} x="0" y={i * 31} width="100" height="31" fill={i % 2 === 0 ? "#2D6A4F" : "#296345"} />
+      ))}
+      <g stroke="white" strokeWidth="0.5" fill="none">
+        <rect x="2" y="2" width="96" height="151" />
+        <line x1="2" y1="77.5" x2="98" y2="77.5" />
+        <circle cx="50" cy="77.5" r="9" />
+        <circle cx="50" cy="77.5" r="0.6" fill="white" />
+        <rect x="20.35" y="2" width="59.3" height="24.36" />
+        <rect x="20.35" y="128.64" width="59.3" height="24.36" />
+        <rect x="36.5" y="2" width="27" height="8.1" />
+        <rect x="36.5" y="144.9" width="27" height="8.1" />
+        <circle cx="50" cy="18.24" r="0.6" fill="white" />
+        <circle cx="50" cy="136.76" r="0.6" fill="white" />
+        <path d="M 40.35 26.36 A 9 9 0 0 0 59.65 26.36" />
+        <path d="M 40.35 128.64 A 9 9 0 0 1 59.65 128.64" />
+      </g>
+
+      <defs>
+        <marker id="freccia-punta" markerWidth="6" markerHeight="6" refX="4" refY="2" orient="auto">
+          <path d="M0,0 L4,2 L0,4 Z" fill="#FFD166" />
+        </marker>
+      </defs>
+
+      {frecce.map((f) => (
+        <line
+          key={f.id}
+          x1={f.x1}
+          y1={f.y1}
+          x2={f.x2}
+          y2={f.y2}
+          stroke="#FFD166"
+          strokeWidth="1"
+          markerEnd="url(#freccia-punta)"
+          onClick={!perStampa && modo === "frecce" ? () => eliminaFreccia(f.id) : undefined}
+          style={{ cursor: !perStampa && modo === "frecce" ? "pointer" : "default" }}
+        />
+      ))}
+      {!perStampa && freccIn && freccPrev && (
+        <line x1={freccIn.x} y1={freccIn.y} x2={freccPrev.x} y2={freccPrev.y} stroke="#FFD166" strokeWidth="1" strokeDasharray="2,1.5" />
+      )}
+
+      {Object.entries(posizioni).map(([id, pos]) => {
+        const r = tuttiSelezionabili.find((t) => t.p.id === id);
+        if (!r) return null;
+        const colore = RUOLO_COLOR[r.p.ruolo] || "#1B4332";
+        return (
+          <g
+            key={id}
+            transform={`translate(${pos.x}, ${pos.y})`}
+            onPointerDown={!perStampa ? onPointerDownPlayer(id) : undefined}
+            style={{ cursor: !perStampa && modo === "sposta" ? "grab" : "default" }}
+          >
+            <circle r="3.4" fill={colore} stroke="white" strokeWidth="0.4" />
+            <text y="1.1" textAnchor="middle" fontSize="3" fontWeight="700" fill="white">
+              {r.n}
+            </text>
+            <text y="6.2" textAnchor="middle" fontSize="2.6" fontWeight="700" fill="white" stroke="#00000066" strokeWidth="0.15">
+              {r.p.cognome}
+            </text>
+            {!perStampa && modo === "sposta" && (
+              <g className="lavagna-solo-editor" transform="translate(2.7, -2.7)" onPointerDown={(e) => { e.stopPropagation(); rimuoviDalCampo(id); }}>
+                <circle r="1.5" fill="#C1440E" />
+                <text y="0.6" textAnchor="middle" fontSize="1.9" fill="white">
+                  ×
+                </text>
+              </g>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+
+  return (
+    <div className="sheet lavagna-sheet">
+      <div className="sheet-header">
+        <h2>Lavagna tattica</h2>
+        <button type="button" className="icon-btn" onClick={onClose}>
+          <Icon name="X" size={18} />
+        </button>
+      </div>
+      <p className="muted" style={{ marginBottom: 8 }}>
+        {noi} vs {m.avversario || "Avversario"} ·{" "}
+        {new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "numeric" })}
+      </p>
+
+      {titolari.length === 0 ? (
+        <div className="empty">
+          <Icon name="Users" size={26} />
+          <p>Assegna prima i titolari (maglie 1-11) nella scheda partita.</p>
+        </div>
+      ) : (
+        <>
+          <div className="lavagna-toolbar">
+            <button type="button" className={`ord-btn ${modo === "sposta" ? "active" : ""}`} onClick={() => setModo("sposta")}>
+              <Icon name="ArrowRightLeft" size={14} /> Sposta giocatori
+            </button>
+            <button type="button" className={`ord-btn ${modo === "frecce" ? "active" : ""}`} onClick={() => setModo("frecce")}>
+              <Icon name="ArrowRightLeft" size={14} /> Disegna frecce
+            </button>
+          </div>
+          {modo === "frecce" && (
+            <p className="muted lavagna-hint">
+              Trascina sul campo (anche partendo da un giocatore) per disegnare una freccia. Tocca una freccia per cancellarla.
+            </p>
+          )}
+
+          <div className="lavagna-campo-wrap">
+            {renderCampo(false)}
+          </div>
+
+          {frecce.length > 0 && (
+            <button type="button" className="btn ghost" style={{ marginTop: 8 }} onClick={() => setFrecce([])}>
+              <Icon name="Trash2" size={14} /> Cancella tutte le frecce
+            </button>
+          )}
+
+          {inPanchina.length > 0 && (
+            <div className="lavagna-panchina">
+              <div className="lavagna-panchina-title">Panchina — tocca per aggiungere al campo</div>
+              <div className="lavagna-panchina-list">
+                {inPanchina.map((r) => (
+                  <button key={r.p.id} type="button" className="lavagna-panchina-chip" onClick={() => aggiungiAlCampo(r.p.id)}>
+                    {r.n}. {r.p.cognome}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="sheet-actions">
+        <button type="button" className="btn ghost" onClick={onClose}>
+          Chiudi
+        </button>
+        {titolari.length > 0 && (
+          <>
+            <button type="button" className="btn ghost" onClick={() => setPrintMode(true)}>
+              <Icon name="Printer" size={15} /> Stampa
+            </button>
+            <button type="button" className="btn primary" onClick={condividi} style={{ background: "#25D366" }}>
+              <WhatsAppIcon size={15} /> Condividi
+            </button>
+          </>
+        )}
+      </div>
+
+      {printMode && (
+        <PrintPortal>
+          <div className="print-page">
+            <h1>Lavagna tattica</h1>
+            <p className="print-subtitle">
+              {noi} vs {m.avversario || "Avversario"} ·{" "}
+              {new Date(m.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })}
+            </p>
+            <div className="lavagna-print-campo-wrap">
+              {renderCampo(true)}
+            </div>
+          </div>
+        </PrintPortal>
+      )}
+    </div>
+  );
+}
+
 function LiveMatchModal({ m, players, nomeSquadra, categoria, onUpdateMatch, onClose }) {
   const [, forceTick] = useState(0);
   const numPeriodi = categoria.numPeriodi;
@@ -2113,7 +2509,7 @@ function MatchForm({ initial, players, durataPartita, onSave, onCancel }) {
   );
 }
 
-function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuickReport, onLive, readOnly }) {
+function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuickReport, onLive, onLavagna, readOnly }) {
   const titolariCount = Object.values(m.entries).filter((e) => e.stato === "titolare").length;
   const nomeById = Object.fromEntries(players.map((p) => [p.id, `${p.cognome} ${p.nome}`]));
   const used = Object.entries(m.entries).filter(([, e]) => e.stato === "titolare" || e.stato === "subentrato");
@@ -2203,6 +2599,9 @@ function MatchCard({ m, players, nomeSquadra, onEdit, onDelete, onReport, onQuic
           <div className="card-actions">
             <button className="icon-btn" onClick={() => onReport(m)} aria-label="Distinta">
               <Icon name="ClipboardList" size={15} />
+            </button>
+            <button className="icon-btn" onClick={() => onLavagna(m)} aria-label="Lavagna tattica">
+              <Icon name="Football" size={15} />
             </button>
             {!readOnly && (
               <button className="icon-btn danger" onClick={() => onDelete(m.id)} aria-label="Elimina">
@@ -3533,6 +3932,7 @@ function App() {
   const [reportMatch, setReportMatch] = useState(null);
   const [reportMatchQuick, setReportMatchQuick] = useState(null);
   const [reportEventiMatch, setReportEventiMatch] = useState(null);
+  const [lavagnaMatch, setLavagnaMatch] = useState(null);
   const [liveMatchId, setLiveMatchId] = useState(null);
   const [swUpdateReg, setSwUpdateReg] = useState(null);
   const [swNewVersion, setSwNewVersion] = useState(null);
@@ -3958,6 +4358,7 @@ function App() {
     if (typeof window.fsSaveDoc === "function") {
       window.fsSaveDoc("partite", id, updated).catch((err) => {
         console.error("Errore salvataggio partita su Firestore:", err);
+        alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nRiprova appena possibile.");
       });
     } else {
       setMatches((prev) => prev.map((x) => (x.id === id ? updated : x)));
@@ -4866,6 +5267,7 @@ function App() {
                     onReport={setReportMatch}
                     onQuickReport={setReportMatchQuick}
                     onLive={(match) => setLiveMatchId(match.id)}
+                    onLavagna={(match) => setLavagnaMatch(match)}
                     readOnly={modalitaDirettore}
                   />
                 ))}
@@ -5136,6 +5538,20 @@ function App() {
               players={giocatoriCategoria}
               nomeSquadra={nomeSquadra}
               onClose={() => setReportEventiMatch(null)}
+            />
+          </div>
+        </div>
+      )}
+
+      {lavagnaMatch && matches.find((x) => x.id === lavagnaMatch.id) && (
+        <div className="modal-backdrop">
+          <div onClick={(e) => e.stopPropagation()}>
+            <TacticalBoardModal
+              m={matches.find((x) => x.id === lavagnaMatch.id)}
+              players={giocatoriCategoria}
+              nomeSquadra={nomeSquadra}
+              onUpdateMatch={updateMatchRemote}
+              onClose={() => setLavagnaMatch(null)}
             />
           </div>
         </div>
@@ -6635,6 +7051,39 @@ const css = `
     color: #444;
   }
   .print-footer img { height: 26px; width: 26px; object-fit: cover; border-radius: 6px; }
+
+  .lavagna-sheet { max-width: 480px; }
+  .lavagna-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
+  .lavagna-toolbar .ord-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .lavagna-hint { margin-bottom: 8px; font-size: 12px; }
+  .lavagna-campo-wrap {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    max-height: 60vh;
+  }
+  .lavagna-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .lavagna-panchina { margin-top: 14px; }
+  .lavagna-panchina-title { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; font-weight: 600; }
+  .lavagna-panchina-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lavagna-panchina-chip {
+    background: var(--chalk);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .lavagna-print-campo-wrap { max-width: 400px; margin: 0 auto; }
+  .lavagna-svg-stampa { width: 100%; height: auto; }
   @media print {
     @page { size: A4 landscape; margin: 12mm; }
     #root { display: none !important; }
