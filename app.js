@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.72";
+const APP_VERSION = "2.73";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1277,6 +1277,10 @@ function lavagnaSpreadX(n, i) {
   const margine = 14;
   return margine + ((100 - 2 * margine) * i) / (n - 1);
 }
+function lavagnaRuoloAbbr(ruolo) {
+  const linea = RUOLO_LINEA[ruolo] || "centrocampo";
+  return { portiere: "P", difesa: "D", centrocampo: "C", attacco: "A" }[linea];
+}
 function lavagnaPosizioniDefault(righe) {
   const gruppi = { portiere: [], difesa: [], centrocampo: [], attacco: [] };
   righe.forEach((r) => {
@@ -1413,15 +1417,21 @@ function TacticalBoardModal({ m, players, nomeSquadra, onUpdateMatch, onClose })
       return c;
     });
   };
-  const aggiungiAlCampo = (id) => {
-    setPosizioni((prev) => ({ ...prev, [id]: { x: 50, y: 78 } }));
+  const aggiungiAlCampo = (id, ruolo) => {
+    setPosizioni((prev) => {
+      const gia = Object.keys(prev).length;
+      const linea = RUOLO_LINEA[ruolo] || "centrocampo";
+      const colonna = gia % 5;
+      const riga = Math.floor(gia / 5);
+      return { ...prev, [id]: { x: 22 + colonna * 14, y: (LAVAGNA_LINEA_Y[linea] || 78) - riga * 10 } };
+    });
   };
   const eliminaFreccia = (id) => {
     setFrecce((prev) => prev.filter((f) => f.id !== id));
   };
 
   const inCampoIds = Object.keys(posizioni);
-  const inPanchina = riserve.filter((r) => !inCampoIds.includes(r.p.id));
+  const inPanchina = tuttiSelezionabili.filter((r) => !inCampoIds.includes(r.p.id));
 
   const esportaPNG = () =>
     new Promise((resolve, reject) => {
@@ -1532,17 +1542,24 @@ function TacticalBoardModal({ m, players, nomeSquadra, onUpdateMatch, onClose })
             onPointerDown={!perStampa ? onPointerDownPlayer(id) : undefined}
             style={{ cursor: !perStampa && modo === "sposta" ? "grab" : "default" }}
           >
-            <circle r="3.4" fill={colore} stroke="white" strokeWidth="0.4" />
-            <text y="1.1" textAnchor="middle" fontSize="3" fontWeight="700" fill="white">
+            <circle r="3.9" fill={colore} stroke="white" strokeWidth="0.4" />
+            <text y="1.3" textAnchor="middle" fontSize="3.4" fontWeight="700" fill="white">
               {r.n}
             </text>
-            <text y="6.2" textAnchor="middle" fontSize="2.6" fontWeight="700" fill="white" stroke="#00000066" strokeWidth="0.15">
+            <text y="7.2" textAnchor="middle" fontSize="3" fontWeight="700" fill="white" stroke="#00000066" strokeWidth="0.15">
               {r.p.cognome}
             </text>
             {!perStampa && modo === "sposta" && (
-              <g className="lavagna-solo-editor" transform="translate(2.7, -2.7)" onPointerDown={(e) => { e.stopPropagation(); rimuoviDalCampo(id); }}>
-                <circle r="1.5" fill="#C1440E" />
-                <text y="0.6" textAnchor="middle" fontSize="1.9" fill="white">
+              <g
+                className="lavagna-solo-editor"
+                transform="translate(3.6, -3.6)"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  rimuoviDalCampo(id);
+                }}
+              >
+                <circle r="2.6" fill="#C1440E" stroke="white" strokeWidth="0.3" />
+                <text y="0.9" textAnchor="middle" fontSize="3" fill="white">
                   ×
                 </text>
               </g>
@@ -1602,7 +1619,7 @@ function TacticalBoardModal({ m, players, nomeSquadra, onUpdateMatch, onClose })
               <div className="lavagna-panchina-title">Panchina — tocca per aggiungere al campo</div>
               <div className="lavagna-panchina-list">
                 {inPanchina.map((r) => (
-                  <button key={r.p.id} type="button" className="lavagna-panchina-chip" onClick={() => aggiungiAlCampo(r.p.id)}>
+                  <button key={r.p.id} type="button" className="lavagna-panchina-chip" onClick={() => aggiungiAlCampo(r.p.id, r.p.ruolo)}>
                     {r.n}. {r.p.cognome}
                   </button>
                 ))}
@@ -1639,6 +1656,375 @@ function TacticalBoardModal({ m, players, nomeSquadra, onUpdateMatch, onClose })
             <div className="lavagna-print-campo-wrap">
               {renderCampo(true)}
             </div>
+          </div>
+        </PrintPortal>
+      )}
+    </div>
+  );
+}
+
+// --- Lavagna tattica libera: stessa meccanica della lavagna per-partita, ma non legata a
+// nessuna gara — i giocatori si pescano liberamente dall'anagrafica della categoria attiva.
+// Salvataggio locale sul dispositivo (una lavagna per categoria), non sincronizzato tra staff.
+function FreeTacticalBoard({ players, nomeSquadra, categoriaAttiva }) {
+  const storageKey = `gs_lavagna_libera_${categoriaAttiva || "default"}`;
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  const noi = nomeSquadra || "Rosa Squadra";
+
+  const caricaSalvato = () => {
+    try {
+      const s = JSON.parse(localStorage.getItem(storageKey) || "{}");
+      return { posizioni: s.posizioni || {}, frecce: s.frecce || [] };
+    } catch (e) {
+      return { posizioni: {}, frecce: [] };
+    }
+  };
+
+  const svgRef = useRef(null);
+  const posizioniRef = useRef(null);
+  const frecceRef = useRef(null);
+  const saveTimer = useRef(null);
+  const primoRender = useRef(true);
+  const categoriaPrecedente = useRef(categoriaAttiva);
+
+  const [posizioni, setPosizioni] = useState(() => caricaSalvato().posizioni);
+  const [frecce, setFrecce] = useState(() => caricaSalvato().frecce);
+  const [modo, setModo] = useState("sposta");
+  const [trascId, setTrascId] = useState(null);
+  const [freccIn, setFreccIn] = useState(null);
+  const [freccPrev, setFreccPrev] = useState(null);
+  const [printMode, setPrintMode] = useState(false);
+
+  // Cambio categoria (altro allenatore, o switch dalle Impostazioni): ricarica lo schema
+  // salvato per la nuova categoria invece di continuare a mostrare quello precedente.
+  useEffect(() => {
+    if (categoriaPrecedente.current === categoriaAttiva) return;
+    categoriaPrecedente.current = categoriaAttiva;
+    const s = caricaSalvato();
+    primoRender.current = true;
+    setPosizioni(s.posizioni);
+    setFrecce(s.frecce);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoriaAttiva]);
+
+  posizioniRef.current = posizioni;
+  frecceRef.current = frecce;
+
+  useEffect(() => {
+    if (primoRender.current) {
+      primoRender.current = false;
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({ posizioni: posizioniRef.current, frecce: frecceRef.current }));
+      } catch (e) {}
+    }, 400);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [posizioni, frecce, storageKey]);
+
+  useEffect(() => {
+    if (!printMode) return;
+    const t = setTimeout(() => window.print(), 80);
+    const onAfter = () => setPrintMode(false);
+    window.addEventListener("afterprint", onAfter);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("afterprint", onAfter);
+    };
+  }, [printMode]);
+
+  const puntoDaEvento = (e) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 50, y: 75 };
+    const rect = svg.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 155;
+    return { x: Math.max(2, Math.min(98, x)), y: Math.max(2, Math.min(153, y)) };
+  };
+
+  const onPointerDownPlayer = (id) => (e) => {
+    e.stopPropagation();
+    const pt = posizioni[id] || puntoDaEvento(e);
+    if (modo === "sposta") {
+      setTrascId(id);
+    } else {
+      setFreccIn(pt);
+      setFreccPrev(pt);
+    }
+    if (e.target.setPointerCapture && e.pointerId !== undefined) {
+      try {
+        e.target.setPointerCapture(e.pointerId);
+      } catch (err) {}
+    }
+  };
+
+  const onPointerDownSfondo = (e) => {
+    if (modo !== "frecce") return;
+    const pt = puntoDaEvento(e);
+    setFreccIn(pt);
+    setFreccPrev(pt);
+  };
+
+  const onPointerMove = (e) => {
+    if (trascId) {
+      setPosizioni((prev) => ({ ...prev, [trascId]: puntoDaEvento(e) }));
+    } else if (freccIn) {
+      setFreccPrev(puntoDaEvento(e));
+    }
+  };
+
+  const onPointerUp = () => {
+    if (trascId) setTrascId(null);
+    if (freccIn && freccPrev) {
+      const dist = Math.hypot(freccPrev.x - freccIn.x, freccPrev.y - freccIn.y);
+      if (dist > 4) {
+        setFrecce((prev) => [...prev, { id: `f_${Date.now()}`, x1: freccIn.x, y1: freccIn.y, x2: freccPrev.x, y2: freccPrev.y }]);
+      }
+    }
+    setFreccIn(null);
+    setFreccPrev(null);
+  };
+
+  const rimuoviDalCampo = (id) => {
+    setPosizioni((prev) => {
+      const c = { ...prev };
+      delete c[id];
+      return c;
+    });
+  };
+  const aggiungiAlCampo = (id, ruolo) => {
+    setPosizioni((prev) => {
+      const gia = Object.keys(prev).length;
+      const linea = RUOLO_LINEA[ruolo] || "centrocampo";
+      const colonna = gia % 5;
+      const riga = Math.floor(gia / 5);
+      return { ...prev, [id]: { x: 22 + colonna * 14, y: (LAVAGNA_LINEA_Y[linea] || 78) - riga * 10 } };
+    });
+  };
+  const eliminaFreccia = (id) => {
+    setFrecce((prev) => prev.filter((f) => f.id !== id));
+  };
+  const svuotaCampo = () => {
+    if (!window.confirm("Svuotare il campo e cancellare tutte le frecce?")) return;
+    setPosizioni({});
+    setFrecce([]);
+  };
+
+  const inCampoIds = Object.keys(posizioni);
+  const disponibili = players
+    .filter((p) => !inCampoIds.includes(p.id))
+    .sort((a, b) => {
+      const r = RUOLI.indexOf(a.ruolo) - RUOLI.indexOf(b.ruolo);
+      return r !== 0 ? r : a.cognome.localeCompare(b.cognome);
+    });
+
+  const esportaPNG = () =>
+    new Promise((resolve, reject) => {
+      const svg = svgRef.current;
+      if (!svg) return reject(new Error("Campo non pronto"));
+      const clone = svg.cloneNode(true);
+      clone.querySelectorAll(".lavagna-solo-editor").forEach((el) => el.remove());
+      const xml = new XMLSerializer().serializeToString(clone);
+      const svg64 = btoa(unescape(encodeURIComponent(xml)));
+      const img = new Image();
+      img.onload = () => {
+        const scale = 8;
+        const canvas = document.createElement("canvas");
+        canvas.width = 100 * scale;
+        canvas.height = 155 * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => resolve(blob), "image/png");
+      };
+      img.onerror = reject;
+      img.src = "data:image/svg+xml;base64," + svg64;
+    });
+
+  const condividi = async () => {
+    try {
+      const blob = await esportaPNG();
+      const file = new File([blob], "lavagna-tattica.png", { type: "image/png" });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Lavagna tattica", text: noi });
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "lavagna-tattica.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        alert("Immagine salvata sul telefono: aprila e condividila su WhatsApp dalla galleria o dalle foto.");
+      }
+    } catch (err) {
+      console.error("Errore esportazione lavagna libera:", err);
+      alert("Non sono riuscito a generare l'immagine: " + (err && err.message ? err.message : "riprova"));
+    }
+  };
+
+  const renderCampo = (perStampa) => (
+    <svg
+      ref={!perStampa ? svgRef : null}
+      viewBox="0 0 100 155"
+      className={perStampa ? "lavagna-svg lavagna-svg-stampa" : "lavagna-svg"}
+      onPointerDown={!perStampa ? onPointerDownSfondo : undefined}
+      onPointerMove={!perStampa ? onPointerMove : undefined}
+      onPointerUp={!perStampa ? onPointerUp : undefined}
+      onPointerLeave={!perStampa ? onPointerUp : undefined}
+    >
+      <rect x="0" y="0" width="100" height="155" fill="#2D6A4F" />
+      {[0, 1, 2, 3, 4].map((i) => (
+        <rect key={i} x="0" y={i * 31} width="100" height="31" fill={i % 2 === 0 ? "#2D6A4F" : "#296345"} />
+      ))}
+      <g stroke="white" strokeWidth="0.5" fill="none">
+        <rect x="2" y="2" width="96" height="151" />
+        <line x1="2" y1="77.5" x2="98" y2="77.5" />
+        <circle cx="50" cy="77.5" r="9" />
+        <circle cx="50" cy="77.5" r="0.6" fill="white" />
+        <rect x="20.35" y="2" width="59.3" height="24.36" />
+        <rect x="20.35" y="128.64" width="59.3" height="24.36" />
+        <rect x="36.5" y="2" width="27" height="8.1" />
+        <rect x="36.5" y="144.9" width="27" height="8.1" />
+        <circle cx="50" cy="18.24" r="0.6" fill="white" />
+        <circle cx="50" cy="136.76" r="0.6" fill="white" />
+        <path d="M 40.35 26.36 A 9 9 0 0 0 59.65 26.36" />
+        <path d="M 40.35 128.64 A 9 9 0 0 1 59.65 128.64" />
+      </g>
+
+      <defs>
+        <marker id="freccia-punta-2" markerWidth="6" markerHeight="6" refX="4" refY="2" orient="auto">
+          <path d="M0,0 L4,2 L0,4 Z" fill="#FFD166" />
+        </marker>
+      </defs>
+
+      {frecce.map((f) => (
+        <line
+          key={f.id}
+          x1={f.x1}
+          y1={f.y1}
+          x2={f.x2}
+          y2={f.y2}
+          stroke="#FFD166"
+          strokeWidth="1"
+          markerEnd="url(#freccia-punta-2)"
+          onClick={!perStampa && modo === "frecce" ? () => eliminaFreccia(f.id) : undefined}
+          style={{ cursor: !perStampa && modo === "frecce" ? "pointer" : "default" }}
+        />
+      ))}
+      {!perStampa && freccIn && freccPrev && (
+        <line x1={freccIn.x} y1={freccIn.y} x2={freccPrev.x} y2={freccPrev.y} stroke="#FFD166" strokeWidth="1" strokeDasharray="2,1.5" />
+      )}
+
+      {Object.entries(posizioni).map(([id, pos]) => {
+        const p = byId[id];
+        if (!p) return null;
+        const colore = RUOLO_COLOR[p.ruolo] || "#1B4332";
+        return (
+          <g
+            key={id}
+            transform={`translate(${pos.x}, ${pos.y})`}
+            onPointerDown={!perStampa ? onPointerDownPlayer(id) : undefined}
+            style={{ cursor: !perStampa && modo === "sposta" ? "grab" : "default" }}
+          >
+            <circle r="3.9" fill={colore} stroke="white" strokeWidth="0.4" />
+            <text y="1.3" textAnchor="middle" fontSize="3.4" fontWeight="700" fill="white">
+              {lavagnaRuoloAbbr(p.ruolo)}
+            </text>
+            <text y="7.2" textAnchor="middle" fontSize="3" fontWeight="700" fill="white" stroke="#00000066" strokeWidth="0.15">
+              {p.cognome}
+            </text>
+            {!perStampa && modo === "sposta" && (
+              <g
+                className="lavagna-solo-editor"
+                transform="translate(3.6, -3.6)"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  rimuoviDalCampo(id);
+                }}
+              >
+                <circle r="2.6" fill="#C1440E" stroke="white" strokeWidth="0.3" />
+                <text y="0.9" textAnchor="middle" fontSize="3" fill="white">
+                  ×
+                </text>
+              </g>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+
+  return (
+    <div>
+      <div className="toolbar">
+        <div className="toolbar-title">
+          <Icon name="Football" size={16} /> Lavagna tattica
+        </div>
+      </div>
+      <p className="muted" style={{ marginBottom: 10 }}>
+        Componi schemi e movimenti liberamente, pescando i giocatori dalla rosa — senza legarti alla formazione di una partita specifica.
+      </p>
+
+      <div className="lavagna-toolbar">
+        <button type="button" className={`ord-btn ${modo === "sposta" ? "active" : ""}`} onClick={() => setModo("sposta")}>
+          <Icon name="ArrowRightLeft" size={14} /> Sposta giocatori
+        </button>
+        <button type="button" className={`ord-btn ${modo === "frecce" ? "active" : ""}`} onClick={() => setModo("frecce")}>
+          <Icon name="ArrowRightLeft" size={14} /> Disegna frecce
+        </button>
+      </div>
+      {modo === "frecce" && (
+        <p className="muted lavagna-hint">
+          Trascina sul campo (anche partendo da un giocatore) per disegnare una freccia. Tocca una freccia per cancellarla.
+        </p>
+      )}
+
+      <div className="lavagna-campo-wrap">{renderCampo(false)}</div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        {frecce.length > 0 && (
+          <button type="button" className="btn ghost" onClick={() => setFrecce([])}>
+            <Icon name="Trash2" size={14} /> Cancella frecce
+          </button>
+        )}
+        {inCampoIds.length > 0 && (
+          <button type="button" className="btn ghost" onClick={svuotaCampo}>
+            <Icon name="Trash2" size={14} /> Svuota campo
+          </button>
+        )}
+        <button type="button" className="btn ghost" onClick={() => setPrintMode(true)}>
+          <Icon name="Printer" size={15} /> Stampa
+        </button>
+        <button type="button" className="btn primary" onClick={condividi} style={{ background: "#25D366" }}>
+          <WhatsAppIcon size={15} /> Condividi
+        </button>
+      </div>
+
+      {disponibili.length > 0 && (
+        <div className="lavagna-panchina">
+          <div className="lavagna-panchina-title">Rosa — tocca per aggiungere al campo</div>
+          <div className="lavagna-panchina-list">
+            {disponibili.map((p) => (
+              <button key={p.id} type="button" className="lavagna-panchina-chip" onClick={() => aggiungiAlCampo(p.id, p.ruolo)}>
+                {p.cognome}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {printMode && (
+        <PrintPortal>
+          <div className="print-page">
+            <h1>Lavagna tattica</h1>
+            <p className="print-subtitle">{noi}</p>
+            <div className="lavagna-print-campo-wrap">{renderCampo(true)}</div>
           </div>
         </PrintPortal>
       )}
@@ -3972,7 +4358,7 @@ function App() {
   const cambiaTabSwipe = (direzione) => {
     const ids = isDirettore
       ? ["anagrafica", "risultati", "report", "report-squadra"]
-      : ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra"];
+      : ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra", "lavagna-libera"];
     const i = ids.indexOf(tab);
     if (i === -1) return;
     const next = direzione === "left" ? i + 1 : i - 1;
@@ -4999,6 +5385,7 @@ function App() {
     { id: "convocazioni", label: "Convocazioni", icon: <Icon name="ClipboardList" size={16} /> },
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
+    { id: "lavagna-libera", label: "Lavagna", icon: <Icon name="Football" size={16} /> },
   ];
   const TABS_DIRETTORE = [
     { id: "anagrafica", label: "Rosa", icon: <Icon name="Users" size={16} /> },
@@ -5458,6 +5845,10 @@ function App() {
               <PremiumGate deviceCode={deviceCode} onGoSettings={() => setShowSettings(true)} />
             )}
           </>
+        )}
+
+        {tab === "lavagna-libera" && (
+          <FreeTacticalBoard players={giocatoriCategoria} nomeSquadra={nomeSquadra} categoriaAttiva={categoriaAttiva} />
         )}
       </main>
 
@@ -7052,15 +7443,14 @@ const css = `
   }
   .print-footer img { height: 26px; width: 26px; object-fit: cover; border-radius: 6px; }
 
-  .lavagna-sheet { max-width: 480px; }
+  .lavagna-sheet { max-width: 620px; }
   .lavagna-toolbar { display: flex; gap: 8px; margin-bottom: 8px; }
-  .lavagna-toolbar .ord-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .lavagna-toolbar .ord-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 10px 8px; font-size: 13px; }
   .lavagna-hint { margin-bottom: 8px; font-size: 12px; }
   .lavagna-campo-wrap {
     border-radius: 10px;
     overflow: hidden;
     border: 1px solid var(--line);
-    max-height: 60vh;
   }
   .lavagna-svg {
     display: block;
@@ -7077,12 +7467,12 @@ const css = `
     background: var(--chalk);
     border: 1px solid var(--line);
     border-radius: 20px;
-    padding: 6px 12px;
-    font-size: 12.5px;
+    padding: 7px 13px;
+    font-size: 13.5px;
     font-weight: 600;
     cursor: pointer;
   }
-  .lavagna-print-campo-wrap { max-width: 400px; margin: 0 auto; }
+  .lavagna-print-campo-wrap { max-width: 480px; margin: 0 auto; }
   .lavagna-svg-stampa { width: 100%; height: auto; }
   @media print {
     @page { size: A4 landscape; margin: 12mm; }
