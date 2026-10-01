@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "3.14";
+const APP_VERSION = "3.16";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -259,6 +259,7 @@ const CATEGORIE = [
   { id: "allievi16", nome: "Allievi (Under 16)", durata: 90, numPeriodi: 2, periodoMinuti: 45 },
   { id: "allievi17", nome: "Allievi (Under 17)", durata: 90, numPeriodi: 2, periodoMinuti: 45 },
   { id: "juniores19", nome: "Juniores U19", durata: 90, numPeriodi: 2, periodoMinuti: 45 },
+  { id: "primasquadra", nome: "Prima Squadra", durata: 90, numPeriodi: 2, periodoMinuti: 45 },
 ];
 
 function getCategoria(id) {
@@ -6768,6 +6769,13 @@ const css = `
     padding: 0;
     width: 100%;
     overflow-x: hidden;
+    /* Alcuni browser Android (in particolare quello di default sui telefoni Huawei/EMUI)
+       applicano un "ridimensionamento automatico" del testo che può farlo apparire
+       minuscolo in layout a colonne strette come le card dell'anagrafica. Disattivato
+       per mostrare sempre le dimensioni di testo scelte qui, uguali su tutti i telefoni. */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   .app {
     width: 100%;
