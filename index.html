@@ -26,6 +26,8 @@
         doc,
         setDoc,
         getDoc,
+        updateDoc,
+        arrayUnion,
         deleteDoc,
         collection,
         onSnapshot,
@@ -33,6 +35,7 @@
       import {
         getAuth,
         signInWithEmailAndPassword,
+        signInAnonymously,
         signOut,
         onAuthStateChanged,
       } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -67,6 +70,28 @@
       // (incluso al caricamento, se la sessione era già salva dal browser).
       window.fsOnAuthChange = function (callback) {
         return onAuthStateChanged(auth, (user) => callback(!!user));
+      };
+
+      // Accesso anonimo: usato SOLO dalla pagina pubblica di risposta alle amichevoli
+      // (il link condiviso su WhatsApp), per permettere a chi risponde di scrivere su
+      // Firestore senza conoscere il codice di accesso condiviso dello staff.
+      window.fsSignInAnonimo = function () {
+        return signInAnonymously(auth).then(() => true);
+      };
+
+      // Lettura singola di un documento (non in tempo reale): usata dalla pagina pubblica
+      // per leggere una singola richiesta di amichevole e il nome squadra, senza dover
+      // sottoscrivere l'intera collezione.
+      window.fsGetDoc = function (nomeCollezione, id) {
+        return getDoc(doc(db, nomeCollezione, id)).then((snap) => (snap.exists() ? { ...snap.data(), id: snap.id } : null));
+      };
+
+      // Aggiunge un elemento a un campo-array di un documento esistente (es. una nuova
+      // risposta nell'elenco "risposte" di una richiesta di amichevole) senza doverlo
+      // rileggere e riscrivere per intero: evita che due risposte quasi simultanee si
+      // sovrascrivano a vicenda.
+      window.fsAggiungiElementoArray = function (nomeCollezione, id, campo, valore) {
+        return updateDoc(doc(db, nomeCollezione, id), { [campo]: arrayUnion(valore) });
       };
 
       // Test di andata e ritorno: scrive un documento diagnostico e lo rilegge subito.

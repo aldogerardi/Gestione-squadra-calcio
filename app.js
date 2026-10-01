@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "2.74";
+const APP_VERSION = "3.14";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -185,6 +185,18 @@ const emptyConvocazione = {
   oraRitrovo: "",
   indirizzo: "",
   note: "",
+};
+
+const emptyAmichevole = {
+  id: null,
+  categoria: "",
+  dataInizio: "",
+  dataFine: "",
+  oraInizio: "",
+  oraFine: "",
+  luogo: "",
+  creataIl: "",
+  risposte: [], // [{ nomeSocieta, cellulare, inviataIl }]
 };
 
 function calcolaClassifica(players, friendlies) {
@@ -724,12 +736,390 @@ function TrainingCard({ t, players, nomeSquadra, onEdit, onDelete, onReport, rea
   );
 }
 
+// --- Amichevoli: richieste di amichevole con range di date/orari, condivise via link
+// WhatsApp; chi risponde (una società avversaria) lascia nome e cellulare senza dover
+// installare o accedere all'app.
+function AmichevoleForm({ initial, categoriaAttiva, onSave, onCancel }) {
+  const [categoria, setCategoria] = useState(initial.categoria || categoriaAttiva);
+  const [dataInizio, setDataInizio] = useState(initial.dataInizio);
+  const [dataFine, setDataFine] = useState(initial.dataFine || initial.dataInizio);
+  const [oraInizio, setOraInizio] = useState(initial.oraInizio);
+  const [oraFine, setOraFine] = useState(initial.oraFine);
+  const [luogo, setLuogo] = useState(initial.luogo);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (!categoria || !dataInizio || !luogo.trim()) return;
+    onSave({
+      ...initial,
+      categoria,
+      dataInizio,
+      dataFine: dataFine || dataInizio,
+      oraInizio,
+      oraFine,
+      luogo: luogo.trim(),
+      creataIl: initial.creataIl || new Date().toISOString(),
+    });
+  };
+
+  return (
+    <form className="sheet" onSubmit={submit}>
+      <div className="sheet-header">
+        <h2>Nuova richiesta amichevole</h2>
+        <button type="button" className="icon-btn" onClick={onCancel}>
+          <Icon name="X" size={18} />
+        </button>
+      </div>
+
+      <label className="field" style={{ marginBottom: 12 }}>
+        <span className="field-label">
+          <Icon name="Shield" size={13} /> Categoria
+        </span>
+        <select value={categoria} onChange={(e) => setCategoria(e.target.value)} required>
+          <option value="">Seleziona…</option>
+          {CATEGORIE.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="sheet-grid" style={{ marginBottom: 12 }}>
+        <label className="field">
+          <span className="field-label">
+            <Icon name="Calendar" size={13} /> Data dal
+          </span>
+          <input type="date" value={dataInizio} onChange={(e) => setDataInizio(e.target.value)} required />
+        </label>
+        <label className="field">
+          <span className="field-label">
+            <Icon name="Calendar" size={13} /> Data al
+          </span>
+          <input type="date" value={dataFine} min={dataInizio} onChange={(e) => setDataFine(e.target.value)} />
+        </label>
+      </div>
+
+      <div className="sheet-grid" style={{ marginBottom: 12 }}>
+        <label className="field">
+          <span className="field-label">
+            <Icon name="Clock" size={13} /> Ora dalle
+          </span>
+          <input type="time" value={oraInizio} onChange={(e) => setOraInizio(e.target.value)} />
+        </label>
+        <label className="field">
+          <span className="field-label">
+            <Icon name="Clock" size={13} /> Ora alle
+          </span>
+          <input type="time" value={oraFine} onChange={(e) => setOraFine(e.target.value)} />
+        </label>
+      </div>
+
+      <label className="field" style={{ marginBottom: 16 }}>
+        <span className="field-label">
+          <Icon name="ShieldAlert" size={13} /> Luogo
+        </span>
+        <input
+          type="text"
+          value={luogo}
+          placeholder="Es. Campo comunale, Via dello Sport 4"
+          onChange={(e) => setLuogo(e.target.value)}
+          required
+        />
+      </label>
+
+      <div className="sheet-actions">
+        <button type="button" className="btn ghost" onClick={onCancel}>
+          Annulla
+        </button>
+        <button type="submit" className="btn primary">
+          Salva e crea link
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function AmichevoleCard({ a, nomeSquadra, onDelete, readOnly }) {
+  const noi = nomeSquadra || "Rosa Squadra";
+  const categoriaInfo = CATEGORIE.find((c) => c.id === a.categoria);
+  const risposte = a.risposte || [];
+  const dataStr = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "short" }) : "");
+  const periodo = a.dataFine && a.dataFine !== a.dataInizio ? `${dataStr(a.dataInizio)} – ${dataStr(a.dataFine)}` : dataStr(a.dataInizio);
+  const orario = a.oraInizio || a.oraFine ? `${a.oraInizio || "?"}–${a.oraFine || "?"}` : null;
+
+  const condividiWhatsapp = () => {
+    const base = window.location.origin + window.location.pathname;
+    const link = `${base}?amichevole=${a.id}`;
+    let testo = `⚽ RICHIESTA AMICHEVOLE\n${noi} — ${categoriaInfo ? categoriaInfo.nome : ""}\n\n`;
+    testo += `📅 ${periodo}${orario ? `\n🕒 ${orario}` : ""}\n📍 ${a.luogo}\n\n`;
+    testo += `Se siete disponibili, rispondeteci qui:\n${link}`;
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`, "_blank");
+  };
+
+  return (
+    <div className="card">
+      <div className="card-body">
+        <div className="card-top">
+          <div className="card-name-row">
+            <div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                <span className="categoria-badge">{categoriaInfo ? categoriaInfo.nome : "—"}</span>
+                <span className={`amichevole-stato ${risposte.length > 0 ? "con-risposte" : "in-attesa"}`}>
+                  {risposte.length > 0 ? `${risposte.length} risposta${risposte.length > 1 ? "e" : ""}` : "In attesa"}
+                </span>
+              </div>
+              <div className="card-name">{periodo}{orario ? ` · ${orario}` : ""}</div>
+              <div className="card-meta">{a.luogo}</div>
+            </div>
+          </div>
+          <div className="card-actions">
+            <button className="icon-btn" onClick={condividiWhatsapp} aria-label="Condividi su WhatsApp">
+              <WhatsAppIcon size={15} />
+            </button>
+            {!readOnly && (
+              <button className="icon-btn danger" onClick={() => onDelete(a.id)} aria-label="Elimina">
+                <Icon name="Trash2" size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {risposte.length > 0 && (
+          <div className="amichevole-risposte">
+            {risposte.map((r, i) => (
+              <div key={i} className="amichevole-risposta-row">
+                <div className="amichevole-risposta-societa">⚽ {r.nomeSocieta}</div>
+                <div className="amichevole-risposta-tel">📞 {r.cellulare}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AmichevoliTab({ amichevoli, nomeSquadra, categoriaAttiva, vistaTutteCategorie, onSave, onDelete, readOnly }) {
+  const [editing, setEditing] = useState(null);
+  const lista = [...amichevoli].sort((a, b) => (b.creataIl || "").localeCompare(a.creataIl || ""));
+
+  return (
+    <>
+      <div className="toolbar">
+        <div className="toolbar-title">
+          <Icon name="Football" size={16} /> Amichevoli
+        </div>
+        {!readOnly && (
+          <button className="btn primary" onClick={() => setEditing({ ...emptyAmichevole, categoria: categoriaAttiva })}>
+            <Icon name="Plus" size={15} /> Nuova
+          </button>
+        )}
+      </div>
+
+      {lista.length === 0 ? (
+        <div className="empty">
+          <Icon name="Trophy" size={28} />
+          <p>Nessuna richiesta di amichevole{readOnly ? "." : ": creane una per condividerla via WhatsApp."}</p>
+        </div>
+      ) : (
+        <div className="card-list">
+          {lista.map((a) => (
+            <AmichevoleCard key={a.id} a={a} nomeSquadra={nomeSquadra} onDelete={onDelete} readOnly={readOnly} />
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <div className="modal-backdrop" onClick={() => setEditing(null)}>
+          <div onClick={(e) => e.stopPropagation()}>
+            <AmichevoleForm
+              initial={editing}
+              categoriaAttiva={categoriaAttiva}
+              onSave={(a) => {
+                onSave(a);
+                setEditing(null);
+              }}
+              onCancel={() => setEditing(null)}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Pagina pubblica, raggiunta da chi clicca il link condiviso su WhatsApp: niente PIN,
+// niente resto dell'app — solo il riepilogo della richiesta e il mini-form di risposta.
+function PaginaPubblicaAmichevole({ id }) {
+  const [stato, setStato] = useState("carico"); // carico | trovata | non-trovata | errore | inviata
+  const [richiesta, setRichiesta] = useState(null);
+  const [nomeSquadra, setNomeSquadra] = useState("Rosa Squadra");
+  const [nomeSocieta, setNomeSocieta] = useState("");
+  const [cellulare, setCellulare] = useState("");
+  const [invio, setInvio] = useState(false);
+
+  useEffect(() => {
+    let annullato = false;
+    const carica = async () => {
+      try {
+        if (typeof window.fsSignInAnonimo === "function") {
+          await window.fsSignInAnonimo();
+        }
+        const [doc1, club] = await Promise.all([
+          window.fsGetDoc ? window.fsGetDoc("amichevoli", id) : null,
+          window.fsGetDoc ? window.fsGetDoc("impostazioni", "club").catch(() => null) : null,
+        ]);
+        if (annullato) return;
+        if (club && club.nomeSquadra) setNomeSquadra(club.nomeSquadra);
+        if (doc1) {
+          setRichiesta(doc1);
+          setStato("trovata");
+        } else {
+          setStato("non-trovata");
+        }
+      } catch (err) {
+        console.error("Errore caricamento richiesta amichevole:", err);
+        if (!annullato) setStato("errore");
+      }
+    };
+    carica();
+    return () => {
+      annullato = true;
+    };
+  }, [id]);
+
+  const categoriaInfo = richiesta ? CATEGORIE.find((c) => c.id === richiesta.categoria) : null;
+  const dataStr = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" }) : "");
+  const periodo = richiesta && richiesta.dataFine && richiesta.dataFine !== richiesta.dataInizio
+    ? `${dataStr(richiesta.dataInizio)} – ${dataStr(richiesta.dataFine)}`
+    : richiesta
+    ? dataStr(richiesta.dataInizio)
+    : "";
+  const orario = richiesta && (richiesta.oraInizio || richiesta.oraFine) ? `${richiesta.oraInizio || "?"} – ${richiesta.oraFine || "?"}` : null;
+
+  const invia = async (e) => {
+    e.preventDefault();
+    if (!nomeSocieta.trim() || !cellulare.trim()) return;
+    setInvio(true);
+    try {
+      if (typeof window.fsAggiungiElementoArray !== "function") throw new Error("Funzione non disponibile");
+      await window.fsAggiungiElementoArray("amichevoli", id, "risposte", {
+        nomeSocieta: nomeSocieta.trim(),
+        cellulare: cellulare.trim(),
+        inviataIl: new Date().toISOString(),
+      });
+      setStato("inviata");
+    } catch (err) {
+      console.error("Errore invio risposta amichevole:", err);
+      alert("Invio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a inviare.");
+    } finally {
+      setInvio(false);
+    }
+  };
+
+  return (
+    <>
+      <style>{css}</style>
+      <div className="pubblica-amichevole">
+      <div className="pubblica-header">
+        <div className="pubblica-ball">
+          <Icon name="Football" size={24} />
+        </div>
+        <div className="pubblica-nome">{nomeSquadra}</div>
+        <div className="pubblica-sottotitolo">Richiesta di amichevole</div>
+      </div>
+
+      <div className="pubblica-body">
+        {stato === "carico" && <p className="muted" style={{ textAlign: "center" }}>Carico la richiesta…</p>}
+
+        {stato === "non-trovata" && (
+          <p className="muted" style={{ textAlign: "center" }}>
+            Questa richiesta non esiste più o è stata rimossa.
+          </p>
+        )}
+
+        {stato === "errore" && (
+          <p className="muted" style={{ textAlign: "center" }}>
+            Non riesco a caricare la richiesta. Controlla la connessione e riprova a riaprire il link.
+          </p>
+        )}
+
+        {(stato === "trovata" || stato === "inviata") && richiesta && (
+          <>
+            <div className="pubblica-dettagli">
+              {categoriaInfo && <div className="categoria-badge" style={{ marginBottom: 12 }}>{categoriaInfo.nome}</div>}
+              <div className="pubblica-riga">
+                <Icon name="Calendar" size={16} />
+                <div>
+                  <div className="pubblica-riga-label">Periodo disponibile</div>
+                  <div className="pubblica-riga-val">{periodo}</div>
+                </div>
+              </div>
+              {orario && (
+                <div className="pubblica-riga">
+                  <Icon name="Clock" size={16} />
+                  <div>
+                    <div className="pubblica-riga-label">Fascia oraria</div>
+                    <div className="pubblica-riga-val">{orario}</div>
+                  </div>
+                </div>
+              )}
+              <div className="pubblica-riga">
+                <Icon name="Shield" size={16} />
+                <div>
+                  <div className="pubblica-riga-label">Luogo</div>
+                  <div className="pubblica-riga-val">{richiesta.luogo}</div>
+                </div>
+              </div>
+            </div>
+
+            {stato === "inviata" ? (
+              <div className="pubblica-grazie">
+                <Icon name="Check" size={22} />
+                <p>Grazie! La vostra disponibilità è stata inviata allo staff di {nomeSquadra}, che vi ricontatterà per confermare.</p>
+              </div>
+            ) : (
+              <form onSubmit={invia}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "var(--pitch-dark)", margin: "4px 0 12px 0" }}>
+                  Siete disponibili? Lasciateci i vostri dati
+                </div>
+                <label className="field" style={{ marginBottom: 12 }}>
+                  <span className="field-label">Nome società</span>
+                  <input
+                    type="text"
+                    value={nomeSocieta}
+                    placeholder="Es. Polisportiva Virtus"
+                    onChange={(e) => setNomeSocieta(e.target.value)}
+                    required
+                  />
+                </label>
+                <label className="field" style={{ marginBottom: 16 }}>
+                  <span className="field-label">Cellulare per essere ricontattati</span>
+                  <input
+                    type="tel"
+                    value={cellulare}
+                    placeholder="Es. 345 123 4567"
+                    onChange={(e) => setCellulare(e.target.value)}
+                    required
+                  />
+                </label>
+                <button type="submit" className="btn pubblica-invia" disabled={invio}>
+                  {invio ? "Invio…" : "Invia disponibilità"}
+                </button>
+              </form>
+            )}
+          </>
+        )}
+      </div>
+      </div>
+    </>
+  );
+}
+
+
 function TrainingReportModal({ t, players, nomeSquadra, onClose }) {
   const presentiIds = new Set(Object.entries(t.entries).filter(([, e]) => e.stato === "presente").map(([id]) => id));
-  const presenti = players.filter((p) => presentiIds.has(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
-  const assenti = players.filter((p) => !presentiIds.has(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
-  const dataStr = new Date(t.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
-  const noi = nomeSquadra || "Rosa Squadra";
 
   const condividiWhatsapp = () => {
     let testo = `🏋️ ALLENAMENTO\n${noi} — ${dataStr}\n`;
@@ -4311,6 +4701,7 @@ function App() {
   const [matches, setMatches] = useState([]);
   const [friendlies, setFriendlies] = useState([]);
   const [convocazioni, setConvocazioni] = useState([]);
+  const [amichevoli, setAmichevoli] = useState([]);
   const [editing, setEditing] = useState(null);
   const [editingTraining, setEditingTraining] = useState(null);
   const [reportTraining, setReportTraining] = useState(null);
@@ -4357,8 +4748,8 @@ function App() {
 
   const cambiaTabSwipe = (direzione) => {
     const ids = isDirettore
-      ? ["anagrafica", "risultati", "report", "report-squadra"]
-      : ["anagrafica", "allenamenti", "partite", "partitella", "convocazioni", "report", "report-squadra", "lavagna-libera"];
+      ? ["anagrafica", "risultati", "amichevoli", "report", "report-squadra"]
+      : ["anagrafica", "allenamenti", "partite", "amichevoli", "partitella", "convocazioni", "report", "report-squadra", "lavagna-libera"];
     const i = ids.indexOf(tab);
     if (i === -1) return;
     const next = direzione === "left" ? i + 1 : i - 1;
@@ -4833,6 +5224,45 @@ function App() {
     };
   }, [accessoOk]);
 
+  const [fbAmichevoliSync, setFbAmichevoliSync] = useState("connessione");
+
+  useEffect(() => {
+    let unsubscribe = null;
+    let tentativi = 0;
+    let annullato = false;
+    if (!accessoOk) return;
+    const prova = () => {
+      if (annullato) return;
+      if (typeof window.fsSubscribeCollection === "function") {
+        unsubscribe = window.fsSubscribeCollection(
+          "amichevoli",
+          (arr) => {
+            setAmichevoli(arr);
+            setFbAmichevoliSync("ok");
+            try {
+              localStorage.setItem("gs_amichevoli", JSON.stringify(arr));
+            } catch (e) {}
+          },
+          () => setFbAmichevoliSync("offline")
+        );
+      } else if (tentativi < 25) {
+        tentativi++;
+        setTimeout(prova, 200);
+      } else {
+        setFbAmichevoliSync("offline");
+        try {
+          const a = localStorage.getItem("gs_amichevoli");
+          if (a) setAmichevoli(JSON.parse(a));
+        } catch (e) {}
+      }
+    };
+    prova();
+    return () => {
+      annullato = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, [accessoOk]);
+
   const [ordinamento, setOrdinamento] = useState("alfabetico");
 
   const giocatoriCategoria = useMemo(
@@ -4929,6 +5359,11 @@ function App() {
     [matches, categoriaAttiva, modalitaDirettore]
   );
 
+  const sortedAmichevoli = useMemo(
+    () => amichevoli.filter((a) => categoriaAttiva === "tutte" || (a.categoria || "") === categoriaAttiva),
+    [amichevoli, categoriaAttiva, modalitaDirettore]
+  );
+
   const saveMatch = (m) => {
     if (typeof window.fsSaveDoc === "function") {
       window.fsSaveDoc("partite", m.id, m)
@@ -5023,6 +5458,30 @@ function App() {
       window.fsDeleteDoc("convocazioni", id).catch((err) => console.error(err));
     } else {
       setConvocazioni((prev) => prev.filter((c) => c.id !== id));
+    }
+  };
+
+  const saveAmichevole = (a) => {
+    const conId = a.id || `am_${Date.now()}`;
+    const record = { ...a, id: conId };
+    if (typeof window.fsSaveDoc === "function") {
+      window.fsSaveDoc("amichevoli", conId, record).catch((err) => {
+        console.error("Errore salvataggio amichevole su Firestore:", err);
+        alert("Salvataggio non riuscito: " + (err && err.message ? err.message : "riprova") + "\nI dati inseriti non sono stati persi, riprova a salvare.");
+      });
+    } else {
+      setAmichevoli((prev) => {
+        const exists = prev.some((x) => x.id === conId);
+        return exists ? prev.map((x) => (x.id === conId ? record : x)) : [...prev, record];
+      });
+    }
+  };
+
+  const deleteAmichevole = (id) => {
+    if (typeof window.fsDeleteDoc === "function") {
+      window.fsDeleteDoc("amichevoli", id).catch((err) => console.error(err));
+    } else {
+      setAmichevoli((prev) => prev.filter((a) => a.id !== id));
     }
   };
 
@@ -5386,6 +5845,7 @@ function App() {
     { id: "anagrafica", label: "Anagrafica", icon: <Icon name="Users" size={16} /> },
     { id: "allenamenti", label: "Allenamenti", icon: <Icon name="Dumbbell" size={16} /> },
     { id: "partite", label: "Partite", icon: <Icon name="Trophy" size={16} /> },
+    { id: "amichevoli", label: "Amichevoli", icon: <Icon name="ArrowRightLeft" size={16} /> },
     { id: "partitella", label: "Partitella", icon: <Icon name="Shuffle" size={16} /> },
     { id: "convocazioni", label: "Convocazioni", icon: <Icon name="ClipboardList" size={16} /> },
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
@@ -5395,13 +5855,14 @@ function App() {
   const TABS_DIRETTORE = [
     { id: "anagrafica", label: "Rosa", icon: <Icon name="Users" size={16} /> },
     { id: "risultati", label: "Risultati", icon: <Icon name="Trophy" size={16} /> },
+    { id: "amichevoli", label: "Amichevoli", icon: <Icon name="ArrowRightLeft" size={16} /> },
     { id: "report", label: "Report Atleta", icon: <Icon name="BarChart3" size={16} /> },
     { id: "report-squadra", label: "Report Squadra", icon: <Icon name="Medal" size={16} /> },
   ];
   const TABS = isDirettore ? TABS_DIRETTORE : TABS_ALLENATORE;
 
   useEffect(() => {
-    const idsDirettore = ["anagrafica", "risultati", "report", "report-squadra"];
+    const idsDirettore = ["anagrafica", "risultati", "amichevoli", "report", "report-squadra"];
     if (isDirettore && !idsDirettore.includes(tab)) setTab("anagrafica");
   }, [isDirettore]);
 
@@ -5666,6 +6127,18 @@ function App() {
               </div>
             )}
           </>
+        )}
+
+        {tab === "amichevoli" && (
+          <AmichevoliTab
+            amichevoli={sortedAmichevoli}
+            nomeSquadra={nomeSquadra}
+            categoriaAttiva={categoriaAttiva}
+            vistaTutteCategorie={vistaTutteCategorie}
+            onSave={saveAmichevole}
+            onDelete={deleteAmichevole}
+            readOnly={isDirettore || modalitaDirettore}
+          />
         )}
 
         {tab === "partitella" && (
@@ -7479,6 +7952,88 @@ const css = `
   }
   .lavagna-print-campo-wrap { max-width: 480px; margin: 0 auto; }
   .lavagna-svg-stampa { width: 100%; height: auto; }
+
+  /* --- Amichevoli --- */
+  .categoria-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    background: #EAF3EE;
+    color: var(--pitch-dark);
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .amichevole-stato {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+  }
+  .amichevole-stato.in-attesa { background: #F1F0EC; color: var(--ink-soft); }
+  .amichevole-stato.con-risposte { background: #FBEFE7; color: var(--danger); }
+  .amichevole-risposte { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .amichevole-risposta-row {
+    background: var(--chalk);
+    border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .amichevole-risposta-societa { font-size: 13px; font-weight: 700; color: var(--pitch-dark); }
+  .amichevole-risposta-tel { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+
+  /* --- Pagina pubblica risposta amichevole (fuori dall'app, link WhatsApp) --- */
+  .pubblica-amichevole {
+    width: 100%;
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 100vh;
+    background: var(--chalk);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+  }
+  .pubblica-header {
+    background: var(--pitch-dark);
+    padding: 32px 20px 24px 20px;
+    text-align: center;
+  }
+  .pubblica-ball {
+    width: 52px; height: 52px; border-radius: 50%;
+    background: var(--pitch);
+    color: white;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 10px auto;
+  }
+  .pubblica-nome { color: white; font-weight: 700; font-size: 17px; }
+  .pubblica-sottotitolo { color: #CFE3D7; font-size: 12.5px; margin-top: 2px; }
+  .pubblica-body { padding: 20px; box-sizing: border-box; }
+  .pubblica-dettagli {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .pubblica-riga { display: flex; gap: 10px; margin-bottom: 10px; color: var(--ink-soft); }
+  .pubblica-riga:last-child { margin-bottom: 0; }
+  .pubblica-riga-label { font-size: 10.5px; font-weight: 600; color: var(--ink-soft); }
+  .pubblica-riga-val { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+  .pubblica-invia {
+    width: 100%;
+    background: var(--danger);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 13px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .pubblica-grazie {
+    text-align: center;
+    padding: 24px 10px;
+    color: var(--pitch-dark);
+  }
+  .pubblica-grazie svg { margin-bottom: 8px; }
+  .pubblica-grazie p { font-size: 14px; line-height: 1.5; max-width: 320px; margin: 0 auto; }
   @media print {
     @page { size: A4 landscape; margin: 12mm; }
     #root { display: none !important; }
@@ -7488,4 +8043,12 @@ const css = `
 
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(React.createElement(App));
+// Link condiviso su WhatsApp (?amichevole=<id>): mostra SOLO la paginetta pubblica di
+// risposta, senza montare il resto dell'app (niente PIN, niente sottoscrizioni Firestore
+// dello staff) — chi risponde non deve avere né l'app né alcun accesso.
+const idAmichevolePubblica = new URLSearchParams(window.location.search).get("amichevole");
+if (idAmichevolePubblica) {
+  root.render(React.createElement(PaginaPubblicaAmichevole, { id: idAmichevolePubblica }));
+} else {
+  root.render(React.createElement(App));
+}
