@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "3.16";
+const APP_VERSION = "3.17";
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -1121,6 +1121,10 @@ function PaginaPubblicaAmichevole({ id }) {
 
 function TrainingReportModal({ t, players, nomeSquadra, onClose }) {
   const presentiIds = new Set(Object.entries(t.entries).filter(([, e]) => e.stato === "presente").map(([id]) => id));
+  const presenti = players.filter((p) => presentiIds.has(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
+  const assenti = players.filter((p) => !presentiIds.has(p.id)).sort((a, b) => a.cognome.localeCompare(b.cognome));
+  const dataStr = new Date(t.data).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
+  const noi = nomeSquadra || "Rosa Squadra";
 
   const condividiWhatsapp = () => {
     let testo = `🏋️ ALLENAMENTO\n${noi} — ${dataStr}\n`;
