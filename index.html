@@ -33,7 +33,9 @@
         onSnapshot,
       } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
       import {
-        getAuth,
+        initializeAuth,
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
         signInWithEmailAndPassword,
         signInAnonymously,
         signOut,
@@ -51,7 +53,10 @@
 
       const fbApp = initializeApp(firebaseConfig);
       const db = getFirestore(fbApp);
-      const auth = getAuth(fbApp);
+      // Persistenza esplicita: prima IndexedDB, poi localStorage come ripiego (browser Huawei/EMUI).
+      const auth = initializeAuth(fbApp, {
+        persistence: [indexedDBLocalPersistence, browserLocalPersistence],
+      });
 
       // Esposti su window così il codice React (caricato via Babel, non come modulo) può usarli.
       window.__firebaseDb = db;
@@ -92,6 +97,42 @@
       // sovrascrivano a vicenda.
       window.fsAggiungiElementoArray = function (nomeCollezione, id, campo, valore) {
         return updateDoc(doc(db, nomeCollezione, id), { [campo]: arrayUnion(valore) });
+      };
+
+      // Piccolo archivio chiave/valore in IndexedDB: copia di sicurezza di codice dispositivo e sblocco,
+      // nel caso il browser svuoti localStorage.
+      function rsKvApri() {
+        return new Promise((resolve, reject) => {
+          const rq = indexedDB.open("rosa-squadra-kv", 1);
+          rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+          rq.onsuccess = () => resolve(rq.result);
+          rq.onerror = () => reject(rq.error);
+        });
+      }
+      window.rsKvGet = function (chiave) {
+        return rsKvApri().then(
+          (d) =>
+            new Promise((resolve) => {
+              const r = d.transaction("kv", "readonly").objectStore("kv").get(chiave);
+              r.onsuccess = () => resolve(r.result === undefined ? null : r.result);
+              r.onerror = () => resolve(null);
+            })
+        ).catch(() => null);
+      };
+      window.rsKvSet = function (chiave, valore) {
+        return rsKvApri().then(
+          (d) =>
+            new Promise((resolve) => {
+              const tx = d.transaction("kv", "readwrite");
+              tx.objectStore("kv").put(valore, chiave);
+              tx.oncomplete = () => resolve(true);
+              tx.onerror = () => resolve(false);
+            })
+        ).catch(() => false);
+      };
+      // Log diagnostico su Firestore (solo dati tecnici del telefono, nessun dato dei ragazzi).
+      window.fsSalvaLogDiagnostico = function (id, dati) {
+        return setDoc(doc(db, "log_diagnostici", String(id)), dati);
       };
 
       // Test di andata e ritorno: scrive un documento diagnostico e lo rilegge subito.

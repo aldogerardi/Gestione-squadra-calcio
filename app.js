@@ -1,6 +1,44 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "3.17";
+const APP_VERSION = "3.18";
+
+// ---- Log diagnostico (v3.18) ----
+function rsLeggiLog() {
+  try {
+    return JSON.parse(localStorage.getItem("gs_log") || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+let rsFlushTimer = null;
+function rsInviaLog() {
+  try {
+    if (!window.__rsAuthOk || typeof window.fsSalvaLogDiagnostico !== "function") return Promise.resolve(false);
+    const dc = window.__rsDeviceCode || "sconosciuto";
+    return window
+      .fsSalvaLogDiagnostico(dc, {
+        versione: APP_VERSION,
+        aggiornato: new Date().toISOString(),
+        ua: (navigator.userAgent || "").slice(0, 200),
+        righe: rsLeggiLog().slice(-30),
+      })
+      .then(() => true)
+      .catch(() => false);
+  } catch (e) {
+    return Promise.resolve(false);
+  }
+}
+function rsLog(msg) {
+  try {
+    const arr = rsLeggiLog();
+    arr.push(new Date().toISOString().slice(0, 19).replace("T", " ") + " v" + APP_VERSION + " " + msg);
+    const tagliato = arr.slice(-30);
+    localStorage.setItem("gs_log", JSON.stringify(tagliato));
+    if (window.rsKvSet) window.rsKvSet("log", tagliato);
+  } catch (e) {}
+  clearTimeout(rsFlushTimer);
+  rsFlushTimer = setTimeout(rsInviaLog, 1500);
+}
 
 // --- Licenza / sblocco funzioni premium ---
 const LICENSE_SECRET = "Quinzanese-RosaSquadra-2026-K7v";
@@ -39,7 +77,7 @@ const ICONS = {
   Trophy: "\uD83C\uDFC6", BarChart3: "\uD83D\uDCCA", Clock: "\u23F1",
   Check: "\u2713", Square: "\u25AB", ArrowRightLeft: "\u21C4",
   Settings: "\u2699", FileUp: "\uD83D\uDCE5", Save: "\uD83D\uDCBE", RotateCcw: "\u267B",
-  Shuffle: "\uD83D\uDD00", Medal: "\uD83C\uDFC5", Shield: "\uD83D\uDEE1", ClipboardList: "\uD83D\uDCCB", Lock: "\uD83D\uDD12", Printer: "\uD83D\uDDA8", MessageCircle: "\uD83D\uDCAC",
+  Shuffle: "\uD83D\uDD00", Medal: "\uD83C\uDFC5", Shield: "\uD83D\uDEE1", ClipboardList: "\uD83D\uDCCB", Lock: "\uD83D\uDD12", Info: "\u2139\uFE0F", Printer: "\uD83D\uDDA8", MessageCircle: "\uD83D\uDCAC",
   Play: "\u25B6", Pause: "\u23F8", StopCircle: "\u23F9", Whistle: "\uD83D\uDCE3", Yellow: "\uD83D\uDFE8", Red: "\uD83D\uDFE5", Football: "\u26BD", Gloves: "\uD83E\uDDE4", Cloud: "\u2601"
 };
 
@@ -4968,16 +5006,21 @@ function App() {
     }
   };
 
-  const [deviceCode] = useState(() => {
+  const [deviceCode, setDeviceCode] = useState(() => {
     try {
       let dc = localStorage.getItem("gs_device_code");
       if (!dc) {
         dc = generaCodiceRichiesta();
         localStorage.setItem("gs_device_code", dc);
+        window.__rsCodiceNuovo = true;
       }
+      window.__rsDeviceCode = dc;
       return dc;
     } catch (e) {
-      return generaCodiceRichiesta();
+      window.__rsCodiceNuovo = true;
+      const dc = generaCodiceRichiesta();
+      window.__rsDeviceCode = dc;
+      return dc;
     }
   });
   const [unlocked, setUnlocked] = useState(() => {
@@ -4987,6 +5030,7 @@ function App() {
       return false;
     }
   });
+  const [backupPronto, setBackupPronto] = useState(false);
   const [unlockInput, setUnlockInput] = useState("");
   const [unlockMsg, setUnlockMsg] = useState("");
 
@@ -5003,6 +5047,65 @@ function App() {
       setUnlockMsg("❌ Codice non valido. Controlla di averlo copiato correttamente.");
     }
   };
+
+  // v3.18: storage persistente, copia di sicurezza in IndexedDB e log diagnostico all'avvio.
+  useEffect(() => {
+    let annullato = false;
+    (async () => {
+      let persistito = "n/d";
+      try {
+        if (navigator.storage && navigator.storage.persist) {
+          persistito = (await navigator.storage.persisted()) ? "si" : "no";
+          if (persistito === "no") persistito = (await navigator.storage.persist()) ? "ottenuto" : "negato";
+        }
+      } catch (e) {}
+      let backup = null;
+      for (let i = 0; i < 15 && !window.rsKvGet; i++) await new Promise((r) => setTimeout(r, 200));
+      if (window.rsKvGet) backup = await window.rsKvGet("backup");
+      if (annullato) return;
+      let ripristinato = "no";
+      if (window.__rsCodiceNuovo && backup && backup.deviceCode) {
+        try {
+          localStorage.setItem("gs_device_code", backup.deviceCode);
+          window.__rsDeviceCode = backup.deviceCode;
+          setDeviceCode(backup.deviceCode);
+          ripristinato = "codice";
+        } catch (e) {}
+      }
+      if (!unlocked && backup && backup.unlocked && (ripristinato === "codice" || backup.deviceCode === deviceCode)) {
+        try {
+          localStorage.setItem("gs_unlocked", "true");
+        } catch (e) {}
+        setUnlocked(true);
+        ripristinato += "+sblocco";
+      }
+      window.__rsBackupPronto = true;
+      setBackupPronto(true);
+      const standalone =
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone
+          ? "installata"
+          : "browser";
+      rsLog(
+        "avvio codice=" + (window.__rsDeviceCode || "?") + " nuovo=" + (window.__rsCodiceNuovo ? "SI" : "no") +
+          " backupIDB=" + (backup ? "si" : "no") + " ripristinato=" + ripristinato +
+          " sbloccato=" + (unlocked ? "si" : "no") + " persistente=" + persistito + " modo=" + standalone
+      );
+    })();
+    return () => {
+      annullato = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Scrive il backup solo dopo il controllo di ripristino, per non sovrascrivere il codice vecchio.
+    if (window.__rsBackupPronto && window.rsKvSet) window.rsKvSet("backup", { deviceCode, unlocked });
+  }, [deviceCode, unlocked, backupPronto]);
+
+  useEffect(() => {
+    if (accessoOk === null) return;
+    window.__rsAuthOk = !!accessoOk;
+    rsLog("sessione " + (accessoOk ? "presente" : "ASSENTE (richiesto codice accesso)"));
+  }, [accessoOk]);
 
   useEffect(() => {
     try {
@@ -6574,6 +6677,37 @@ function App() {
                   {unlockMsg && <p className="settings-msg">{unlockMsg}</p>}
                 </>
               )}
+            </div>
+
+            <div className="settings-section">
+              <div className="settings-title">
+                <Icon name="Info" size={16} /> Diagnostica
+              </div>
+              <p className="muted">Registro tecnico dell'app su questo telefono (utile per risolvere problemi).</p>
+              <pre style={{ fontSize: 10, whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: 160, overflow: "auto", background: "rgba(0,0,0,0.05)", padding: 8, borderRadius: 8 }}>
+                {rsLeggiLog().slice(-12).join("\n") || "nessuna riga"}
+              </pre>
+              <button
+                type="button"
+                className="btn"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  const testo = rsLeggiLog().join("\n");
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(testo).then(() => alert("Log copiato"), () => alert(testo));
+                  } else alert(testo);
+                }}
+              >
+                Copia log
+              </button>
+              <button
+                type="button"
+                className="btn"
+                style={{ marginTop: 8, marginLeft: 8 }}
+                onClick={() => rsInviaLog().then((ok) => alert(ok ? "Log inviato" : "Invio non riuscito"))}
+              >
+                Invia log
+              </button>
             </div>
 
             <div className="settings-section">
