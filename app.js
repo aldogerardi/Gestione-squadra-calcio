@@ -1,6 +1,6 @@
 const { useState, useEffect, useMemo, useRef } = React;
 
-const APP_VERSION = "3.18";
+const APP_VERSION = "3.38";
 
 // ---- Log diagnostico (v3.18) ----
 function rsLeggiLog() {
@@ -77,7 +77,7 @@ const ICONS = {
   Trophy: "\uD83C\uDFC6", BarChart3: "\uD83D\uDCCA", Clock: "\u23F1",
   Check: "\u2713", Square: "\u25AB", ArrowRightLeft: "\u21C4",
   Settings: "\u2699", FileUp: "\uD83D\uDCE5", Save: "\uD83D\uDCBE", RotateCcw: "\u267B",
-  Shuffle: "\uD83D\uDD00", Medal: "\uD83C\uDFC5", Shield: "\uD83D\uDEE1", ClipboardList: "\uD83D\uDCCB", Lock: "\uD83D\uDD12", Info: "\u2139\uFE0F", Printer: "\uD83D\uDDA8", MessageCircle: "\uD83D\uDCAC",
+  Shuffle: "\uD83D\uDD00", Medal: "\uD83C\uDFC5", Shield: "\uD83D\uDEE1", ClipboardList: "\uD83D\uDCCB", Lock: "\uD83D\uDD12", Info: "\u2139\uFE0F", LiveDot: "\uD83D\uDD34", Printer: "\uD83D\uDDA8", MessageCircle: "\uD83D\uDCAC",
   Play: "\u25B6", Pause: "\u23F8", StopCircle: "\u23F9", Whistle: "\uD83D\uDCE3", Yellow: "\uD83D\uDFE8", Red: "\uD83D\uDFE5", Football: "\u26BD", Gloves: "\uD83E\uDDE4", Cloud: "\u2601"
 };
 
@@ -4786,10 +4786,11 @@ function App() {
   const [editingFriendly, setEditingFriendly] = useState(null);
   const [editingConvocazione, setEditingConvocazione] = useState(null);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("anagrafica");
+  const [tab, setTab] = useState("home");
   const touchRef = useRef({ x: 0, y: 0, ignora: false });
 
   const cambiaTabSwipe = (direzione) => {
+    return; // v3.38: navigazione dalla Home, niente più swipe tra sezioni
     const ids = isDirettore
       ? ["anagrafica", "risultati", "amichevoli", "report", "report-squadra"]
       : ["anagrafica", "allenamenti", "partite", "amichevoli", "partitella", "convocazioni", "report", "report-squadra", "lavagna-libera"];
@@ -5969,9 +5970,61 @@ function App() {
   ];
   const TABS = isDirettore ? TABS_DIRETTORE : TABS_ALLENATORE;
 
+  // v3.38: Home a griglia. Le sezioni si aprono da qui; il tasto indietro del telefono torna alla Home.
+  const apriSezione = (id) => {
+    try {
+      window.history.pushState({ rsSezione: id }, "");
+    } catch (e) {}
+    setTab(id);
+    window.scrollTo(0, 0);
+  };
+  const tornaAllaHome = () => {
+    setTab("home");
+    window.scrollTo(0, 0);
+  };
   useEffect(() => {
-    const idsDirettore = ["anagrafica", "risultati", "amichevoli", "report", "report-squadra"];
-    if (isDirettore && !idsDirettore.includes(tab)) setTab("anagrafica");
+    const onPop = () => {
+      setShowSettings(false);
+      setTab("home");
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const apriLive = () => {
+    const inCorso = matches.find((x) => x.live && !x.chiuso);
+    if (inCorso) {
+      setLiveMatchId(inCorso.id);
+    } else {
+      apriSezione("partite");
+    }
+  };
+  const HOME_CARDS = isDirettore
+    ? [
+        { id: "anagrafica", label: "Rosa", icon: "Users" },
+        { id: "risultati", label: "Risultati", icon: "Trophy" },
+        { id: "amichevoli", label: "Amichevoli", icon: "ArrowRightLeft" },
+        { id: "report", label: "Report Atleta", icon: "BarChart3" },
+        { id: "report-squadra", label: "Report Squadra", icon: "Medal" },
+        { id: "__impostazioni", label: "Impostazioni", icon: "Settings" },
+      ]
+    : [
+        { id: "anagrafica", label: "Rosa", icon: "Users" },
+        { id: "allenamenti", label: "Allenamenti", icon: "Dumbbell" },
+        { id: "partite", label: "Partite", icon: "Trophy" },
+        { id: "__live", label: "Live", icon: "LiveDot" },
+        { id: "partitella", label: "Partitella", icon: "Shuffle" },
+        { id: "convocazioni", label: "Convocazioni", icon: "ClipboardList" },
+        { id: "amichevoli", label: "Amichevoli", icon: "ArrowRightLeft" },
+        { id: "lavagna-libera", label: "Lavagna tattica", icon: "Football" },
+        { id: "report", label: "Report Atleta", icon: "BarChart3" },
+        { id: "report-squadra", label: "Report Squadra", icon: "Medal" },
+        { id: "__impostazioni", label: "Impostazioni", icon: "Settings" },
+      ];
+  const titoloSezione = (TABS.find((t) => t.id === tab) || {}).label || "";
+
+  useEffect(() => {
+    const idsDirettore = ["home", "anagrafica", "risultati", "amichevoli", "report", "report-squadra"];
+    if (isDirettore && !idsDirettore.includes(tab)) setTab("home");
   }, [isDirettore]);
 
 
@@ -6058,20 +6111,35 @@ function App() {
         </button>
       </header>
 
-      <nav className="tabs">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.icon}
-            {t.label}
+      {tab !== "home" && (
+        <div className="back-bar">
+          <button className="back-btn" onClick={() => window.history.back()}>
+            ‹ Home
           </button>
-        ))}
-      </nav>
+          <span className="back-title">{titoloSezione}</span>
+        </div>
+      )}
 
       <main className="content" onTouchStart={onContentTouchStart} onTouchEnd={onContentTouchEnd}>
+        {tab === "home" && (
+          <div className="home-grid">
+            {HOME_CARDS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="home-card"
+                onClick={() => {
+                  if (c.id === "__impostazioni") setShowSettings(true);
+                  else if (c.id === "__live") apriLive();
+                  else apriSezione(c.id);
+                }}
+              >
+                <Icon name={c.icon} size={36} />
+                <span>{c.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {tab === "anagrafica" && (
           <>
             {isDirettore && (
@@ -7072,6 +7140,12 @@ const css = `
     border-bottom-color: #E9C46A;
   }
 
+  .back-bar { display: flex; align-items: center; gap: 12px; background: var(--pitch); padding: 8px 12px; }
+  .back-btn { background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 10px; padding: 8px 14px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .back-title { color: #fff; font-weight: 700; font-size: 15px; }
+  .home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .home-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; min-height: 104px; padding: 16px 10px; background: #fff; color: var(--pitch); border: none; border-left: 5px solid #C99A1F; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); font-size: 15px; font-weight: 700; text-align: center; cursor: pointer; }
+  .home-card:active { transform: scale(0.97); }
   .content { padding: 16px; max-width: 720px; margin: 0 auto; width: 100%; }
 
   .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; flex-wrap: wrap; }
